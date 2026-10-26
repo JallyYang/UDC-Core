@@ -23,6 +23,7 @@ module uddc_dec_split
         output logic [1023:0] ctx_raw,
         output logic pkg_valid,
         input logic pkg_ready,
+        input logic pkg_done,
         output logic [UNIT_ID_W - 1:0] pkg_unit_id,
         output logic pkg_pkg_id,
         output logic [3:0] pkg_cbmd,
@@ -56,325 +57,149 @@ module uddc_dec_split
             end
         endcase
     endfunction
-    logic [UNIT_SLOTS - 1:0] allocated, complete;
-    logic [1023:0] data_mem[0:UNIT_SLOTS - 1];
-    logic [3:0] cbmd_mem[0:UNIT_SLOTS - 1];
+    logic [UNIT_SLOTS-1:0] allocated, complete, started;
+    logic [1023:0] data_mem [0:UNIT_SLOTS-1];
+    logic [3:0] cbmd_mem [0:UNIT_SLOTS-1];
+    logic [7:0] received_bytes [0:UNIT_SLOTS-1];
     integer wr_slot, dispatch_slot;
-    localparam int unsigned STREAM_DATA_BITS = 256;
-    localparam int unsigned STREAM_BYTES = STREAM_DATA_BITS / 8;
-    localparam int unsigned UNIT_BEATS = 1024 / STREAM_DATA_BITS;
-    localparam int unsigned BEAT_WIDTH = $clog2(UNIT_BEATS);
-    localparam logic [BEAT_WIDTH - 1:0] LAST_UNIT_BEAT = BEAT_WIDTH'(UNIT_BEATS - 1);
-    logic [BEAT_WIDTH - 1:0] beat;
+    localparam int STREAM_BYTES = 32;
+    logic [1:0] beat;
     logic collecting;
-    localparam logic [1:0] DISPATCH_CTX = 2'd0;
-    localparam logic [1:0] DISPATCH_PKG0 = 2'd1;
-    localparam logic [1:0] DISPATCH_PKG1 = 2'd2;
-    localparam logic [1:0] DISPATCH_CLEAR = 2'd3;
-    // All binary encodings are used; unknown state bits require reset.
+    localparam logic [1:0] DISPATCH_CTX = 0, DISPATCH_PKG0 = 1,
+                           DISPATCH_PKG1 = 2, DISPATCH_CLEAR = 3;
     logic [1:0] dispatch_state;
-    logic [UNIT_SLOTS - 1:0] started;
-    logic [7:0] received_bytes[0:UNIT_SLOTS - 1];
-    logic [7:0] offered_bytes;
-    logic load_snapshot;
-    logic finish_request;
-    // A registered immutable snapshot prevents incoming beats changing a stalled request.
-    assign load_snapshot = rst_n && !pkg_valid &&
-        ((ctx_valid && ctx_ready && ctx_cbmd >= 1 && ctx_cbmd <= 5) ||
-        (dispatch_state == DISPATCH_PKG0 && received_bytes[dispatch_slot] > offered_bytes) ||
-        (dispatch_state == DISPATCH_PKG1 && complete[dispatch_slot]));
-    assign finish_request = pkg_valid && pkg_ready && pkg_final;
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            started <= '0;
-        end
-        else begin
-            if (ctx_valid && ctx_ready) begin
-                started[dispatch_slot] <= 0;
-            end
-            if (s_valid && s_ready && !collecting) begin
-                started[wr_slot] <= 1;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            received_bytes <= '{default: '0};
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                received_bytes[wr_slot] <= s_has_data ? 8'($unsigned((int'(beat) + 1) * 32)) : 8'd0;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            offered_bytes <= 0;
-        end
-        else begin
-            if (load_snapshot) begin
-                offered_bytes <= received_bytes[dispatch_slot];
-            end
-            else begin
-                if (ctx_valid && ctx_ready) begin
-                    offered_bytes <= 0;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            pkg_valid <= 0;
-        end
-        else begin
-            if (load_snapshot) begin
-                pkg_valid <= 1;
-            end
-            else begin
-                if (pkg_valid && pkg_ready) begin
-                    pkg_valid <= 0;
-                end
-            end
-        end
-    end
+    logic input_fire, ctx_fire, request_fire, finish_request, clear_fire;
+    logic bypass_ctx, load_snapshot, snapshot_pkg_id;
+    logic [1023:0] snapshot_data;
+    logic [7:0] snapshot_bytes, offered_bytes;
+    logic snapshot_complete;
+    logic [3:0] snapshot_cbmd;
 
     function automatic int advance(input int slot);
-        return slot == int'(UNIT_SLOTS) - 1 ? 0 : slot + 1;
+        return slot == int'(UNIT_SLOTS)-1 ? 0 : slot+1;
     endfunction
+
     assign s_ready = rst_n && (collecting || !allocated[wr_slot]);
-    assign ctx_valid = rst_n && started[dispatch_slot] &&
-        (cbmd_mem[dispatch_slot] != 0 || complete[dispatch_slot]) && dispatch_state == DISPATCH_CTX;
-    assign ctx_unit_id = UNIT_ID_W'($unsigned(dispatch_slot));
-    assign ctx_cbmd = cbmd_mem[dispatch_slot];
+    assign input_fire = s_valid && s_ready;
+    // A compressed first beat can allocate its output context and parsing
+    // snapshot together. Buffered units still dispatch strictly in order.
+    assign bypass_ctx = input_fire && !collecting && wr_slot == dispatch_slot &&
+                        !started[dispatch_slot] && s_cbmd >= 1 && s_cbmd <= 5;
+    assign ctx_valid = rst_n && dispatch_state == DISPATCH_CTX &&
+                       (bypass_ctx || (started[dispatch_slot] &&
+                        (cbmd_mem[dispatch_slot] != 0 || complete[dispatch_slot])));
+    assign ctx_unit_id = UNIT_ID_W'(dispatch_slot);
+    assign ctx_cbmd = bypass_ctx ? s_cbmd : cbmd_mem[dispatch_slot];
     assign ctx_raw = ctx_cbmd == 0 ? data_mem[dispatch_slot] : '0;
+    assign ctx_fire = ctx_valid && ctx_ready;
+    assign request_fire = pkg_valid && pkg_ready;
+    // The parser acknowledges a complete parse, not just the final sector.
+    // This permits pkg0 to retire before the occupied region is complete.
+    assign finish_request = request_fire && pkg_done;
     assign clear_valid = rst_n && dispatch_state == DISPATCH_CLEAR;
-    assign clear_unit_id = UNIT_ID_W'($unsigned(dispatch_slot));
+    assign clear_unit_id = UNIT_ID_W'(dispatch_slot);
     assign clear_index = cbmd_mem[dispatch_slot] - 4'd6;
+    assign clear_fire = clear_valid && clear_ready;
+
+    always_comb begin
+        snapshot_data = data_mem[dispatch_slot];
+        snapshot_bytes = received_bytes[dispatch_slot];
+        snapshot_complete = complete[dispatch_slot];
+        snapshot_cbmd = cbmd_mem[dispatch_slot];
+        // Forward only accepted beats into the next registered snapshot.
+        // The active request remains immutable while pkg_ready is low.
+        if (input_fire && wr_slot == dispatch_slot) begin
+            if (!collecting) begin
+                snapshot_data = s_has_data ? {768'b0, s_data} : '0;
+                snapshot_cbmd = s_cbmd;
+            end else if (s_has_data) begin
+                snapshot_data[int'(beat)*256 +: 256] = s_data;
+            end
+            snapshot_bytes = s_has_data ? 8'((int'(beat)+1)*32) : 0;
+            snapshot_complete = s_last;
+        end
+        snapshot_pkg_id = dispatch_state == DISPATCH_PKG1 ||
+                          (dispatch_state == DISPATCH_PKG0 && finish_request);
+        load_snapshot = 0;
+        if (rst_n && (!pkg_valid || pkg_ready)) begin
+            if (ctx_fire && ctx_cbmd >= 1 && ctx_cbmd <= 5)
+                load_snapshot = 1;
+            else if (dispatch_state == DISPATCH_PKG0) begin
+                if (finish_request)
+                    load_snapshot = snapshot_complete;
+                else
+                    load_snapshot = snapshot_bytes > offered_bytes;
+            end else if (dispatch_state == DISPATCH_PKG1 && !finish_request)
+                load_snapshot = snapshot_complete &&
+                                (!pkg_valid || !pkg_pkg_id);
+        end
+    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             allocated <= '0;
-        end
-        else begin
-            if (retire_valid) begin
-                allocated[retire_unit_id] <= 0;
-            end
-            if (s_valid && s_ready) begin
+            complete <= '0;
+            started <= '0;
+            received_bytes <= '{default:'0};
+            wr_slot <= 0;
+            dispatch_slot <= 0;
+            dispatch_state <= DISPATCH_CTX;
+            beat <= 0;
+            collecting <= 0;
+            pkg_valid <= 0;
+            offered_bytes <= 0;
+        end else begin
+            if (retire_valid) allocated[retire_unit_id] <= 0;
+            if (input_fire) begin
                 if (!collecting) begin
                     allocated[wr_slot] <= 1;
+                    started[wr_slot] <= 1;
+                    cbmd_mem[wr_slot] <= s_cbmd;
+                    data_mem[wr_slot] <= s_has_data ? {768'b0,s_data} : '0;
+                end else if (s_has_data) begin
+                    data_mem[wr_slot][int'(beat)*256 +: 256] <= s_data;
                 end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            complete <= '0;
-        end
-        else begin
-            if (s_valid && s_ready) begin
+                received_bytes[wr_slot] <= s_has_data ? 8'((int'(beat)+1)*32) : 0;
                 if (s_last) begin
                     complete[wr_slot] <= 1;
-                end
-            end
-            if (ctx_valid && ctx_ready) begin
-                if (ctx_cbmd == 0) begin
-                    complete[dispatch_slot] <= 0;
-                end
-            end
-            if (finish_request || (clear_valid && clear_ready)) begin
-                if (dispatch_state == DISPATCH_PKG0) begin
-                end
-                else begin
-                    complete[dispatch_slot] <= 0;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            wr_slot <= 0;
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (s_last) begin
                     wr_slot <= advance(wr_slot);
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dispatch_slot <= 0;
-        end
-        else begin
-            if (ctx_valid && ctx_ready) begin
-                if (ctx_cbmd == 0) begin
-                    dispatch_slot <= advance(dispatch_slot);
-                end
-            end
-            if (finish_request || (clear_valid && clear_ready)) begin
-                if (dispatch_state == DISPATCH_PKG0) begin
-                end
-                else begin
-                    dispatch_slot <= advance(dispatch_slot);
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            beat <= 0;
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (s_last) begin
                     beat <= 0;
-                end
-                else begin
-                    beat <= beat + 1'b1;
-                end
+                end else beat <= beat+1'b1;
+                collecting <= !s_last;
             end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            collecting <= 0;
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (s_last) begin
-                    collecting <= 0;
-                end
-                else begin
-                    collecting <= 1;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dispatch_state <= DISPATCH_CTX;
-        end
-        else begin
-            if (ctx_valid && ctx_ready) begin
+            if (ctx_fire) begin
+                started[dispatch_slot] <= 0;
+                offered_bytes <= 0;
                 if (ctx_cbmd == 0) begin
-                end
-                else begin
-                    if (ctx_cbmd >= 6) begin
-                        dispatch_state <= DISPATCH_CLEAR;
-                    end
-                    else begin
-                        dispatch_state <= DISPATCH_PKG0;
-                    end
-                end
+                    complete[dispatch_slot] <= 0;
+                    dispatch_slot <= advance(dispatch_slot);
+                end else if (ctx_cbmd >= 6) dispatch_state <= DISPATCH_CLEAR;
+                else dispatch_state <= DISPATCH_PKG0;
             end
-            if (finish_request || (clear_valid && clear_ready)) begin
-                if (dispatch_state == DISPATCH_PKG0) begin
+            if (finish_request) begin
+                if (dispatch_state == DISPATCH_PKG0)
                     dispatch_state <= DISPATCH_PKG1;
-                end
                 else begin
                     dispatch_state <= DISPATCH_CTX;
+                    complete[dispatch_slot] <= 0;
+                    dispatch_slot <= advance(dispatch_slot);
                 end
             end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (!collecting) begin
-                    cbmd_mem[wr_slot] <= s_cbmd;
-                end
+            if (clear_fire) begin
+                complete[dispatch_slot] <= 0;
+                dispatch_state <= DISPATCH_CTX;
+                dispatch_slot <= advance(dispatch_slot);
             end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (!collecting) begin
-                    data_mem[wr_slot] <= s_has_data ? {768'b0, s_data} : 1024'b0;
-                end
-                else begin
-                    if (s_has_data) begin
-                        data_mem[wr_slot][int'(beat) * int'(STREAM_DATA_BITS) +: STREAM_DATA_BITS] <= s_data;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
             if (load_snapshot) begin
-                pkg_unit_id <= UNIT_ID_W'($unsigned(dispatch_slot));
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (load_snapshot) begin
-                pkg_pkg_id <= dispatch_state == DISPATCH_PKG1;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (load_snapshot) begin
-                pkg_cbmd <= cbmd_mem[dispatch_slot];
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (load_snapshot) begin
-                pkg_region <= data_mem[dispatch_slot][767:0];
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (load_snapshot) begin
-                pkg_available_bytes <= received_bytes[dispatch_slot][6:0];
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (load_snapshot) begin
-                pkg_final <= complete[dispatch_slot];
-            end
+                pkg_valid <= 1;
+                pkg_unit_id <= UNIT_ID_W'(dispatch_slot);
+                pkg_pkg_id <= snapshot_pkg_id;
+                pkg_cbmd <= snapshot_cbmd;
+                pkg_region <= snapshot_data[767:0];
+                pkg_available_bytes <= snapshot_bytes[6:0];
+                pkg_final <= snapshot_complete;
+                offered_bytes <= snapshot_bytes;
+            end else if (request_fire) pkg_valid <= 0;
         end
     end
     // synthesis translate_off

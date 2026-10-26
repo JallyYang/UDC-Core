@@ -31,6 +31,7 @@ module uddc_dec_core
     logic [1023:0] ctx_raw;
     logic req_valid;
     logic req_ready;
+    logic req_done;
     logic [UNIT_ID_W - 1:0] req_unit_id;
     logic req_pkg_id;
     logic [3:0] req_cbmd;
@@ -72,6 +73,7 @@ module uddc_dec_core
         .ctx_raw(ctx_raw),
         .pkg_valid(req_valid),
         .pkg_ready(req_ready),
+        .pkg_done(req_done),
         .pkg_unit_id(req_unit_id),
         .pkg_pkg_id(req_pkg_id),
         .pkg_cbmd(req_cbmd),
@@ -103,6 +105,7 @@ module uddc_dec_core
         .rst_n(rst_n),
         .s_valid(req_valid),
         .s_ready(req_ready),
+        .s_done(req_done),
         .s_unit_id(req_unit_id),
         .s_pkg_id(req_pkg_id),
         .s_cbmd(req_cbmd),
