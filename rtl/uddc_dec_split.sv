@@ -68,7 +68,7 @@ module uddc_dec_split
     localparam logic [1:0] DISPATCH_CTX = 0, DISPATCH_PKG0 = 1,
                            DISPATCH_PKG1 = 2, DISPATCH_CLEAR = 3;
     logic [1:0] dispatch_state;
-    logic input_fire, ctx_fire, request_fire, finish_request, clear_fire;
+    logic input_accepted, context_accepted, package_request_accepted, package_parse_finished, clear_request_accepted;
     logic bypass_ctx, load_snapshot, snapshot_pkg_id;
     logic [1023:0] snapshot_data;
     logic [7:0] snapshot_bytes, offered_bytes;
@@ -80,10 +80,10 @@ module uddc_dec_split
     endfunction
 
     assign s_ready = rst_n && (collecting || !allocated[wr_slot]);
-    assign input_fire = s_valid && s_ready;
+    assign input_accepted = s_valid && s_ready;
     // A compressed first beat can allocate its output context and parsing
     // snapshot together. Buffered units still dispatch strictly in order.
-    assign bypass_ctx = input_fire && !collecting && wr_slot == dispatch_slot &&
+    assign bypass_ctx = input_accepted && !collecting && wr_slot == dispatch_slot &&
                         !started[dispatch_slot] && s_cbmd >= 1 && s_cbmd <= 5;
     assign ctx_valid = rst_n && dispatch_state == DISPATCH_CTX &&
                        (bypass_ctx || (started[dispatch_slot] &&
@@ -91,15 +91,15 @@ module uddc_dec_split
     assign ctx_unit_id = UNIT_ID_W'(dispatch_slot);
     assign ctx_cbmd = bypass_ctx ? s_cbmd : cbmd_mem[dispatch_slot];
     assign ctx_raw = ctx_cbmd == 0 ? data_mem[dispatch_slot] : '0;
-    assign ctx_fire = ctx_valid && ctx_ready;
-    assign request_fire = pkg_valid && pkg_ready;
+    assign context_accepted = ctx_valid && ctx_ready;
+    assign package_request_accepted = pkg_valid && pkg_ready;
     // The parser acknowledges a complete parse, not just the final sector.
     // This permits pkg0 to retire before the occupied region is complete.
-    assign finish_request = request_fire && pkg_done;
+    assign package_parse_finished = package_request_accepted && pkg_done;
     assign clear_valid = rst_n && dispatch_state == DISPATCH_CLEAR;
     assign clear_unit_id = UNIT_ID_W'(dispatch_slot);
     assign clear_index = cbmd_mem[dispatch_slot] - 4'd6;
-    assign clear_fire = clear_valid && clear_ready;
+    assign clear_request_accepted = clear_valid && clear_ready;
 
     always_comb begin
         snapshot_data = data_mem[dispatch_slot];
@@ -108,7 +108,7 @@ module uddc_dec_split
         snapshot_cbmd = cbmd_mem[dispatch_slot];
         // Forward only accepted beats into the next registered snapshot.
         // The active request remains immutable while pkg_ready is low.
-        if (input_fire && wr_slot == dispatch_slot) begin
+        if (input_accepted && wr_slot == dispatch_slot) begin
             if (!collecting) begin
                 snapshot_data = s_has_data ? {768'b0, s_data} : '0;
                 snapshot_cbmd = s_cbmd;
@@ -119,17 +119,17 @@ module uddc_dec_split
             snapshot_complete = s_last;
         end
         snapshot_pkg_id = dispatch_state == DISPATCH_PKG1 ||
-                          (dispatch_state == DISPATCH_PKG0 && finish_request);
+                          (dispatch_state == DISPATCH_PKG0 && package_parse_finished);
         load_snapshot = 0;
         if (rst_n && (!pkg_valid || pkg_ready)) begin
-            if (ctx_fire && ctx_cbmd >= 1 && ctx_cbmd <= 5)
+            if (context_accepted && ctx_cbmd >= 1 && ctx_cbmd <= 5)
                 load_snapshot = 1;
             else if (dispatch_state == DISPATCH_PKG0) begin
-                if (finish_request)
+                if (package_parse_finished)
                     load_snapshot = snapshot_complete;
                 else
                     load_snapshot = snapshot_bytes > offered_bytes;
-            end else if (dispatch_state == DISPATCH_PKG1 && !finish_request)
+            end else if (dispatch_state == DISPATCH_PKG1 && !package_parse_finished)
                 load_snapshot = snapshot_complete &&
                                 (!pkg_valid || !pkg_pkg_id);
         end
@@ -150,7 +150,7 @@ module uddc_dec_split
             offered_bytes <= 0;
         end else begin
             if (retire_valid) allocated[retire_unit_id] <= 0;
-            if (input_fire) begin
+            if (input_accepted) begin
                 if (!collecting) begin
                     allocated[wr_slot] <= 1;
                     started[wr_slot] <= 1;
@@ -167,7 +167,7 @@ module uddc_dec_split
                 end else beat <= beat+1'b1;
                 collecting <= !s_last;
             end
-            if (ctx_fire) begin
+            if (context_accepted) begin
                 started[dispatch_slot] <= 0;
                 offered_bytes <= 0;
                 if (ctx_cbmd == 0) begin
@@ -176,7 +176,7 @@ module uddc_dec_split
                 end else if (ctx_cbmd >= 6) dispatch_state <= DISPATCH_CLEAR;
                 else dispatch_state <= DISPATCH_PKG0;
             end
-            if (finish_request) begin
+            if (package_parse_finished) begin
                 if (dispatch_state == DISPATCH_PKG0)
                     dispatch_state <= DISPATCH_PKG1;
                 else begin
@@ -185,7 +185,7 @@ module uddc_dec_split
                     dispatch_slot <= advance(dispatch_slot);
                 end
             end
-            if (clear_fire) begin
+            if (clear_request_accepted) begin
                 complete[dispatch_slot] <= 0;
                 dispatch_state <= DISPATCH_CTX;
                 dispatch_slot <= advance(dispatch_slot);
@@ -199,7 +199,7 @@ module uddc_dec_split
                 pkg_available_bytes <= snapshot_bytes[6:0];
                 pkg_final <= snapshot_complete;
                 offered_bytes <= snapshot_bytes;
-            end else if (request_fire) pkg_valid <= 0;
+            end else if (package_request_accepted) pkg_valid <= 0;
         end
     end
     // synthesis translate_off
