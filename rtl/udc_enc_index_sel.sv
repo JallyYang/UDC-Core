@@ -49,7 +49,10 @@ module udc_enc_index_sel
         endcase
     endfunction
 
-    function automatic int width_of(input logic [3:0] f, input int c);
+    function automatic int width_of(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -91,7 +94,10 @@ module udc_enc_index_sel
         endcase
     endfunction
 
-    function automatic int samples(input logic [3:0] f, input int c);
+    function automatic int samples(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -120,7 +126,10 @@ module udc_enc_index_sel
         endcase
     endfunction
 
-    function automatic int plane_base(input logic [3:0] f, input int c);
+    function automatic int plane_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -131,7 +140,10 @@ module udc_enc_index_sel
         return v;
     endfunction
 
-    function automatic int pair_base(input logic [3:0] f, input int c);
+    function automatic int pair_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -146,8 +158,13 @@ module udc_enc_index_sel
         return w == 32 ? 5 : (w >= 16 ? 4 : 3);
     endfunction
 
-    function automatic int decode_width(input int ix, input int w);
-        int ib, terminal, dw;
+    function automatic int decode_width(
+        input int ix,
+        input int w
+    );
+        int ib;
+        int terminal;
+        int dw;
         ib = index_bits(w);
         terminal = (1 << ib) - 1;
         dw = - 1;
@@ -175,13 +192,21 @@ module udc_enc_index_sel
     endfunction
 
     function automatic logic [31:0] sample_at(
-            input logic [511:0] v, input int pos, input int w);
+        input logic [511:0] v,
+        input int pos,
+        input int w
+    );
         return 32'(v >> pos) & mask_w(w);
     endfunction
 
-    function automatic int min_index(input logic [31:0] x, input int w);
-        logic signed [31:0] sx, narrowed;
-        int answer, dw;
+    function automatic int min_index(
+        input logic [31:0] x,
+        input int w
+    );
+        logic signed [31:0] sx;
+        logic signed [31:0] narrowed;
+        int answer;
+        int dw;
         // Interpret the already wrapped w-bit residual as signed two's complement.
         sx = $signed(x << (32 - w)) >>> (32 - w);
         answer = - 1;
@@ -204,14 +229,27 @@ module udc_enc_index_sel
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [3:0] compute_next_strategy(
-            input logic [511:0] arg_s_deltas,
-            input logic [3:0] arg_s_fmt);
+        input logic [511:0] arg_s_deltas,
+        input logic [3:0] arg_s_fmt
+    );
         logic [3:0] value_next_strategy;
         logic [31:0][4:0] value_next_indexes;
         logic [9:0] value_next_length;
         begin : choose_widths
-            int w, n, pb, ib, base_ix, pairs, global_ix, ix0, ix1, pix;
-            int global_cost, pair_cost, total, delta_count;
+            int w;
+            int n;
+            int pb;
+            int ib;
+            int base_ix;
+            int pairs;
+            int global_ix;
+            int ix0;
+            int ix1;
+            int pix;
+            int global_cost;
+            int pair_cost;
+            int total;
+            int delta_count;
             int pair_ix[0:31];
             value_next_strategy = '0;
             value_next_indexes = '0;
@@ -285,14 +323,27 @@ module udc_enc_index_sel
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [31:0][4:0] compute_next_indexes(
-            input logic [511:0] arg_s_deltas,
-            input logic [3:0] arg_s_fmt);
+        input logic [511:0] arg_s_deltas,
+        input logic [3:0] arg_s_fmt
+    );
         logic [3:0] value_next_strategy;
         logic [31:0][4:0] value_next_indexes;
         logic [9:0] value_next_length;
         begin : choose_widths
-            int w, n, pb, ib, base_ix, pairs, global_ix, ix0, ix1, pix;
-            int global_cost, pair_cost, total, delta_count;
+            int w;
+            int n;
+            int pb;
+            int ib;
+            int base_ix;
+            int pairs;
+            int global_ix;
+            int ix0;
+            int ix1;
+            int pix;
+            int global_cost;
+            int pair_cost;
+            int total;
+            int delta_count;
             int pair_ix[0:31];
             value_next_strategy = '0;
             value_next_indexes = '0;
@@ -366,14 +417,27 @@ module udc_enc_index_sel
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [9:0] compute_next_length(
-            input logic [511:0] arg_s_deltas,
-            input logic [3:0] arg_s_fmt);
+        input logic [511:0] arg_s_deltas,
+        input logic [3:0] arg_s_fmt
+    );
         logic [3:0] value_next_strategy;
         logic [31:0][4:0] value_next_indexes;
         logic [9:0] value_next_length;
         begin : choose_widths
-            int w, n, pb, ib, base_ix, pairs, global_ix, ix0, ix1, pix;
-            int global_cost, pair_cost, total, delta_count;
+            int w;
+            int n;
+            int pb;
+            int ib;
+            int base_ix;
+            int pairs;
+            int global_ix;
+            int ix0;
+            int ix1;
+            int pix;
+            int global_cost;
+            int pair_cost;
+            int total;
+            int delta_count;
             int pair_ix[0:31];
             value_next_strategy = '0;
             value_next_indexes = '0;

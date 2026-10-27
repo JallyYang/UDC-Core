@@ -47,7 +47,10 @@ module uddc_reconstruct_pixel
         endcase
     endfunction
 
-    function automatic int width_of(input logic [3:0] f, input int c);
+    function automatic int width_of(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -89,7 +92,10 @@ module uddc_reconstruct_pixel
         endcase
     endfunction
 
-    function automatic int samples(input logic [3:0] f, input int c);
+    function automatic int samples(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -118,7 +124,10 @@ module uddc_reconstruct_pixel
         endcase
     endfunction
 
-    function automatic int plane_base(input logic [3:0] f, input int c);
+    function automatic int plane_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -134,12 +143,19 @@ module uddc_reconstruct_pixel
     endfunction
 
     function automatic logic [31:0] sample_at(
-            input logic [511:0] v, input int pos, input int w);
+        input logic [511:0] v,
+        input int pos,
+        input int w
+    );
         return 32'(v >> pos) & mask_w(w);
     endfunction
 
     function automatic logic [511:0] set_sample(
-            input logic [511:0] v, input int pos, input int w, input logic [31:0] x);
+        input logic [511:0] v,
+        input int pos,
+        input int w,
+        input logic [31:0] x
+    );
         logic [511:0] r;
         // Only the low w bits are stored: modulo 2**w wrap is intentional.
         r = v;
@@ -153,9 +169,17 @@ module uddc_reconstruct_pixel
     endfunction
 
     function automatic logic [511:0] transpose_planes(
-            input logic [511:0] v, input logic [3:0] f, input bit inverse);
+        input logic [511:0] v,
+        input logic [3:0] f,
+        input bit inverse
+    );
         logic [511:0] r;
-        int pixel_w, offset, w, n, pb, raw_pos;
+        int pixel_w;
+        int offset;
+        int w;
+        int n;
+        int pb;
+        int raw_pos;
         r = '0;
         pixel_w = 0;
         for (int c = 0; c < 4; c++) begin

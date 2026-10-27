@@ -36,7 +36,11 @@ module uddc_package_out
         output logic [UNIT_ID_W - 1:0] retire_unit_id
     );
 
-    function automatic bit valid_sizes(input logic [3:0] cbmd, input int a, b);
+    function automatic bit valid_sizes(
+        input logic [3:0] cbmd,
+        input int a,
+        input int b
+    );
         int total;
         // int operands avoid a 7-bit package-size sum wrapping at 128 bytes.
         total = a + b;
@@ -64,13 +68,20 @@ module uddc_package_out
             end
         endcase
     endfunction
-    logic [UNIT_SLOTS - 1:0] live, clear_done;
-    logic [1:0] done[0:UNIT_SLOTS - 1], errors[0:UNIT_SLOTS - 1];
+    logic [UNIT_SLOTS - 1:0] live;
+    logic [UNIT_SLOTS - 1:0] clear_done;
+    logic [1:0] done[0:UNIT_SLOTS - 1];
+    logic [1:0] errors[0:UNIT_SLOTS - 1];
     logic [1023:0] raw_mem[0:UNIT_SLOTS - 1];
-    logic [3:0] mode_mem[0:UNIT_SLOTS - 1], fmt0[0:UNIT_SLOTS - 1], fmt1[0:UNIT_SLOTS - 1];
-    logic [6:0] size0[0:UNIT_SLOTS - 1], size1[0:UNIT_SLOTS - 1];
+    logic [3:0] mode_mem[0:UNIT_SLOTS - 1];
+    logic [3:0] fmt0[0:UNIT_SLOTS - 1];
+    logic [3:0] fmt1[0:UNIT_SLOTS - 1];
+    logic [6:0] size0[0:UNIT_SLOTS - 1];
+    logic [6:0] size1[0:UNIT_SLOTS - 1];
     logic [UNIT_ID_W - 1:0] order_mem[0:UNIT_SLOTS - 1];
-    integer head, tail, count;
+    integer head;
+    integer tail;
+    integer count;
     localparam int unsigned STREAM_DATA_BITS = 256;
     localparam int unsigned STREAM_BYTES = STREAM_DATA_BITS / 8;
     localparam int unsigned UNIT_BEATS = 1024 / STREAM_DATA_BITS;
@@ -78,7 +89,10 @@ module uddc_package_out
     localparam logic [BEAT_WIDTH - 1:0] LAST_UNIT_BEAT = BEAT_WIDTH'(UNIT_BEATS - 1);
     logic [BEAT_WIDTH - 1:0] beat;
     logic [UNIT_ID_W - 1:0] head_id;
-    logic available, unit_error, push, pop;
+    logic available;
+    logic unit_error;
+    logic push;
+    logic pop;
 
     function automatic int advance(input int slot);
         return slot == int'(UNIT_SLOTS) - 1 ? 0 : slot + 1;
@@ -94,89 +108,136 @@ module uddc_package_out
     assign pop = m_valid && m_ready && m_last;
     assign retire_valid = pop;
     assign retire_unit_id = head_id;
-    // Pure combinational calculation; one result, no module-state side effects.
+    logic [1:0] head_packages_done;
+    logic [1:0] head_package_errors;
+    logic [3:0] head_format0;
+    logic [3:0] head_format1;
+    logic [6:0] head_size0;
+    logic [6:0] head_size1;
+    logic [1023:0] head_raw_data;
 
-    function automatic logic compute_available(
-            input logic [UNIT_SLOTS - 1:0] arg_clear_done,
-            input integer arg_count,
-            input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
-            input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
-            input logic [3:0] arg_fmt0[0:UNIT_SLOTS - 1],
-            input logic [3:0] arg_fmt1[0:UNIT_SLOTS - 1],
-            input logic [UNIT_ID_W - 1:0] arg_head_id,
-            input logic [3:0] arg_mode_mem[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]);
-        logic value_available;
-        logic value_unit_error;
-        begin
-            value_available = 0;
-            value_unit_error = 0;
-            if (arg_count != 0) begin
-                if (arg_mode_mem[arg_head_id] == 0) begin
-                    value_available = 1;
+    // Include an accepted package in the head-unit view immediately. The
+    // same package is still written to the cache at the next edge. If the
+    // output stalls, that cached copy preserves data and status unchanged.
+    always_comb begin
+        available = 0;
+        if (count != 0) begin
+            if (mode_mem[head_id] == 0) begin
+                available = 1;
+            end else begin
+                if (mode_mem[head_id] >= 6) begin
+                    available = clear_done[head_id];
+                end else begin
+                    available = &head_packages_done;
                 end
-                else begin
-                    if (arg_mode_mem[arg_head_id] >= 6) begin
-                        value_available = arg_clear_done[arg_head_id];
-                    end
-                    else begin
-                        value_available = & arg_done[arg_head_id];
-                        if (value_available) begin
-                            value_unit_error = ( | arg_errors[arg_head_id]) || arg_fmt0[arg_head_id] != arg_fmt1[arg_head_id] ||
-                                !valid_sizes(arg_mode_mem[arg_head_id], int'(arg_size0[arg_head_id]), int'(arg_size1[arg_head_id]));
-                        end
+            end
+        end
+    end
+
+    always_comb begin
+        head_format0 = '0;
+        if (count != 0) begin
+            head_format0 = fmt0[head_id];
+            if (pkg_valid && pkg_ready && pkg_unit_id == head_id) begin
+                if (pkg_pkg_id) begin
+                end else begin
+                    head_format0 = pkg_fmt;
+                end
+            end
+        end
+    end
+
+    always_comb begin
+        head_format1 = '0;
+        if (count != 0) begin
+            head_format1 = fmt1[head_id];
+            if (pkg_valid && pkg_ready && pkg_unit_id == head_id) begin
+                if (pkg_pkg_id) begin
+                    head_format1 = pkg_fmt;
+                end
+            end
+        end
+    end
+
+    always_comb begin
+        head_package_errors = '0;
+        if (count != 0) begin
+            head_package_errors = errors[head_id];
+            if (pkg_valid && pkg_ready && pkg_unit_id == head_id) begin
+                head_package_errors[pkg_pkg_id] = pkg_error;
+            end
+        end
+    end
+
+    always_comb begin
+        head_packages_done = '0;
+        if (count != 0) begin
+            head_packages_done = done[head_id];
+            if (pkg_valid && pkg_ready && pkg_unit_id == head_id) begin
+                head_packages_done[pkg_pkg_id] = 1;
+            end
+        end
+    end
+
+    always_comb begin
+        head_raw_data = '0;
+        if (count != 0) begin
+            head_raw_data = raw_mem[head_id];
+            if (pkg_valid && pkg_ready && pkg_unit_id == head_id) begin
+                if (pkg_pkg_id) begin
+                    head_raw_data[1023:512] = pkg_raw;
+                end else begin
+                    head_raw_data[511:0] = pkg_raw;
+                end
+            end
+        end
+    end
+
+    always_comb begin
+        head_size0 = '0;
+        if (count != 0) begin
+            head_size0 = size0[head_id];
+            if (pkg_valid && pkg_ready && pkg_unit_id == head_id) begin
+                if (pkg_pkg_id) begin
+                end else begin
+                    head_size0 = pkg_size_bytes;
+                end
+            end
+        end
+    end
+
+    always_comb begin
+        head_size1 = '0;
+        if (count != 0) begin
+            head_size1 = size1[head_id];
+            if (pkg_valid && pkg_ready && pkg_unit_id == head_id) begin
+                if (pkg_pkg_id) begin
+                    head_size1 = pkg_size_bytes;
+                end
+            end
+        end
+    end
+
+    always_comb begin
+        unit_error = 0;
+        if (count != 0) begin
+            if (mode_mem[head_id] == 0) begin
+            end else begin
+                if (mode_mem[head_id] >= 6) begin
+                end else begin
+                    if (available) begin
+                        unit_error = (|head_package_errors) || head_format0 != head_format1 ||
+                        !valid_sizes(mode_mem[head_id], int'(head_size0), int'(head_size1));
                     end
                 end
             end
         end
-        return value_available;
-    endfunction
-    assign available = compute_available(clear_done, count, done, errors, fmt0, fmt1, head_id, mode_mem, size0, size1);
-    // Pure combinational calculation; one result, no module-state side effects.
-
-    function automatic logic compute_unit_error(
-            input logic [UNIT_SLOTS - 1:0] arg_clear_done,
-            input integer arg_count,
-            input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
-            input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
-            input logic [3:0] arg_fmt0[0:UNIT_SLOTS - 1],
-            input logic [3:0] arg_fmt1[0:UNIT_SLOTS - 1],
-            input logic [UNIT_ID_W - 1:0] arg_head_id,
-            input logic [3:0] arg_mode_mem[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]);
-        logic value_available;
-        logic value_unit_error;
-        begin
-            value_available = 0;
-            value_unit_error = 0;
-            if (arg_count != 0) begin
-                if (arg_mode_mem[arg_head_id] == 0) begin
-                    value_available = 1;
-                end
-                else begin
-                    if (arg_mode_mem[arg_head_id] >= 6) begin
-                        value_available = arg_clear_done[arg_head_id];
-                    end
-                    else begin
-                        value_available = & arg_done[arg_head_id];
-                        if (value_available) begin
-                            value_unit_error = ( | arg_errors[arg_head_id]) || arg_fmt0[arg_head_id] != arg_fmt1[arg_head_id] ||
-                                !valid_sizes(arg_mode_mem[arg_head_id], int'(arg_size0[arg_head_id]), int'(arg_size1[arg_head_id]));
-                        end
-                    end
-                end
-            end
-        end
-        return value_unit_error;
-    endfunction
-    assign unit_error = compute_unit_error(clear_done, count, done, errors, fmt0, fmt1, head_id, mode_mem, size0, size1);
+    end
     assign m_valid = rst_n && available;
     assign m_sop = beat == 0;
     assign m_last = beat == LAST_UNIT_BEAT;
     assign m_error = unit_error;
-    assign m_data = unit_error || count == 0 ? '0 : raw_mem[head_id][int'(beat) * int'(STREAM_DATA_BITS) +: STREAM_DATA_BITS];
+    assign m_data = unit_error || count == 0 ? '0 : head_raw_data[int'(beat) * int'(STREAM_DATA_BITS) +: STREAM_DATA_BITS];
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

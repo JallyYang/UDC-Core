@@ -1,0 +1,80 @@
+[
+  {
+    "case": "tree_w8_p1",
+    "width": 8,
+    "stages": 1,
+    "slack_ns": -0.522187,
+    "minimum_period_estimate_ns": 1.1888536666666667,
+    "frequency_estimate_ghz": 0.8411464152723029,
+    "cell_area": 12686.604,
+    "cells": 7661,
+    "flipflops": 1024,
+    "startpoint": "delta_ready[384]",
+    "endpoint": "samples_out[511]"
+  },
+  {
+    "case": "tree_w8_p2",
+    "width": 8,
+    "stages": 2,
+    "slack_ns": -0.140244,
+    "minimum_period_estimate_ns": 0.8069106666666667,
+    "frequency_estimate_ghz": 1.2392945604883152,
+    "cell_area": 14863.282,
+    "cells": 8147,
+    "flipflops": 1536,
+    "startpoint": "partial_16_0[3]",
+    "endpoint": "samples_out[511]"
+  },
+  {
+    "case": "tree_w16_p1",
+    "width": 16,
+    "stages": 1,
+    "slack_ns": -0.59133,
+    "minimum_period_estimate_ns": 1.2579966666666667,
+    "frequency_estimate_ghz": 0.7949146659106145,
+    "cell_area": 12558.392,
+    "cells": 7515,
+    "flipflops": 1024,
+    "startpoint": "anchor_ready[1]",
+    "endpoint": "samples_out[126]"
+  },
+  {
+    "case": "tree_w16_p2",
+    "width": 16,
+    "stages": 2,
+    "slack_ns": -0.234208,
+    "minimum_period_estimate_ns": 0.9008746666666666,
+    "frequency_estimate_ghz": 1.110032324141279,
+    "cell_area": 15244.726,
+    "cells": 7967,
+    "flipflops": 1536,
+    "startpoint": "anchor_ready[2]",
+    "endpoint": "partial_24_0[15]"
+  },
+  {
+    "case": "tree_w32_p1",
+    "width": 32,
+    "stages": 1,
+    "slack_ns": -1.111754,
+    "minimum_period_estimate_ns": 1.7784206666666664,
+    "frequency_estimate_ghz": 0.5622966594705191,
+    "cell_area": 11308.99,
+    "cells": 6656,
+    "flipflops": 1024,
+    "startpoint": "delta_ready[128]",
+    "endpoint": "samples_out[255]"
+  },
+  {
+    "case": "tree_w32_p2",
+    "width": 32,
+    "stages": 2,
+    "slack_ns": -1.01646,
+    "minimum_period_estimate_ns": 1.6831266666666664,
+    "frequency_estimate_ghz": 0.5941323489220459,
+    "cell_area": 14074.858,
+    "cells": 7424,
+    "flipflops": 1536,
+    "startpoint": "delta_ready[384]",
+    "endpoint": "partial_15_0[31]"
+  }
+]

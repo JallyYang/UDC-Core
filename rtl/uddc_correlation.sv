@@ -3,7 +3,8 @@
 
 module uddc_correlation
     #(
-        parameter int unsigned UNIT_ID_W = 4
+        parameter int unsigned UNIT_ID_W = 4,
+        parameter bit REGISTER_OUTPUT = 1'b1
     )
     (
         input logic clk,
@@ -48,7 +49,10 @@ module uddc_correlation
         endcase
     endfunction
 
-    function automatic int width_of(input logic [3:0] f, input int c);
+    function automatic int width_of(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -90,7 +94,10 @@ module uddc_correlation
         endcase
     endfunction
 
-    function automatic int samples(input logic [3:0] f, input int c);
+    function automatic int samples(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -123,7 +130,10 @@ module uddc_correlation
         return f == 4 || f == 5 || f == 9 || f == 10 || f == 11;
     endfunction
 
-    function automatic int plane_base(input logic [3:0] f, input int c);
+    function automatic int plane_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -139,12 +149,19 @@ module uddc_correlation
     endfunction
 
     function automatic logic [31:0] sample_at(
-            input logic [511:0] v, input int pos, input int w);
+        input logic [511:0] v,
+        input int pos,
+        input int w
+    );
         return 32'(v >> pos) & mask_w(w);
     endfunction
 
     function automatic logic [511:0] set_sample(
-            input logic [511:0] v, input int pos, input int w, input logic [31:0] x);
+        input logic [511:0] v,
+        input int pos,
+        input int w,
+        input logic [31:0] x
+    );
         logic [511:0] r;
         // Only the low w bits are stored: modulo 2**w wrap is intentional.
         r = v;
@@ -158,10 +175,17 @@ module uddc_correlation
     endfunction
 
     function automatic logic [511:0] color_transform(
-            input logic [511:0] v, input logic [3:0] f, input bit inverse);
+        input logic [511:0] v,
+        input logic [3:0] f,
+        input bit inverse
+    );
         logic [511:0] r;
-        logic [31:0] x, green, ref_value;
-        int w, n, pos;
+        logic [31:0] x;
+        logic [31:0] green;
+        logic [31:0] ref_value;
+        int w;
+        int n;
+        int pos;
         r = v;
         x = 0;
         green = 0;
@@ -189,102 +213,119 @@ module uddc_correlation
         end
         return r;
     endfunction
-    assign s_ready = !m_valid || m_ready;
+    // Pixel reconstruction can capture color recovery in its own output
+    // register: the intervening transpose is routing, not another sum stage.
+    generate
+        if (REGISTER_OUTPUT) begin : registered_output
+            assign s_ready = !m_valid || m_ready;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 1'b0;
-        end
-        else begin
-            if (s_ready) begin
-                m_valid <= s_valid;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_unit_id <= s_unit_id;
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                    m_valid <= 1'b0;
+                end
+                else begin
+                    if (s_ready) begin
+                        m_valid <= s_valid;
+                    end
                 end
             end
-        end
-    end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_pkg_id <= s_pkg_id;
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                end
+                else begin
+                    if (s_ready) begin
+                        if (s_valid) begin
+                            m_unit_id <= s_unit_id;
+                        end
+                    end
                 end
             end
-        end
-    end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_fmt <= s_error ? '0 : s_fmt;
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                end
+                else begin
+                    if (s_ready) begin
+                        if (s_valid) begin
+                            m_pkg_id <= s_pkg_id;
+                        end
+                    end
                 end
             end
-        end
-    end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_decor <= s_error ? 1'b0 : s_decor;
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                end
+                else begin
+                    if (s_ready) begin
+                        if (s_valid) begin
+                            m_fmt <= s_error ? '0 : s_fmt;
+                        end
+                    end
                 end
             end
-        end
-    end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_size_bytes <= s_size_bytes;
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                end
+                else begin
+                    if (s_ready) begin
+                        if (s_valid) begin
+                            m_decor <= s_error ? 1'b0 : s_decor;
+                        end
+                    end
                 end
             end
-        end
-    end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_error <= s_error;
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                end
+                else begin
+                    if (s_ready) begin
+                        if (s_valid) begin
+                            m_size_bytes <= s_size_bytes;
+                        end
+                    end
                 end
             end
-        end
-    end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_planes <= s_error ? '0 :
-                        (s_decor ? color_transform(s_planes, s_fmt, 1'b1) : s_planes);
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                end
+                else begin
+                    if (s_ready) begin
+                        if (s_valid) begin
+                            m_error <= s_error;
+                        end
+                    end
                 end
             end
+
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) begin
+                end
+                else begin
+                    if (s_ready) begin
+                        if (s_valid) begin
+                            m_planes <= s_error ? '0 :
+                                (s_decor ? color_transform(s_planes, s_fmt, 1'b1) : s_planes);
+                        end
+                    end
+                end
+            end
+        end else begin : direct_output
+            assign s_ready = rst_n && m_ready;
+            assign m_valid = rst_n && s_valid;
+            assign m_unit_id = s_unit_id;
+            assign m_pkg_id = s_pkg_id;
+            assign m_fmt = s_error ? '0 : s_fmt;
+            assign m_decor = s_error ? 1'b0 : s_decor;
+            assign m_size_bytes = s_size_bytes;
+            assign m_error = s_error;
+            assign m_planes = s_error ? '0 :
+                (s_decor ? color_transform(s_planes, s_fmt, 1'b1) : s_planes);
         end
-    end
+    endgenerate
 endmodule : uddc_correlation
 `default_nettype wire

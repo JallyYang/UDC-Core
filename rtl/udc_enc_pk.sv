@@ -35,14 +35,22 @@ module udc_enc_pk
         output logic retire_valid,
         output logic [UNIT_ID_W - 1:0] retire_unit_id
     );
-    logic [UNIT_SLOTS - 1:0] live, clear_hit;
-    logic [1:0] done[0:UNIT_SLOTS - 1], errors[0:UNIT_SLOTS - 1];
+    logic [UNIT_SLOTS - 1:0] live;
+    logic [UNIT_SLOTS - 1:0] clear_hit;
+    logic [1:0] done[0:UNIT_SLOTS - 1];
+    logic [1:0] errors[0:UNIT_SLOTS - 1];
     logic [1023:0] raw_mem[0:UNIT_SLOTS - 1];
-    logic [543:0] bits0[0:UNIT_SLOTS - 1], bits1[0:UNIT_SLOTS - 1];
-    logic [6:0] size0[0:UNIT_SLOTS - 1], size1[0:UNIT_SLOTS - 1], limits[0:UNIT_SLOTS - 1];
-    logic [3:0] fmts[0:UNIT_SLOTS - 1], clear_ix[0:UNIT_SLOTS - 1];
+    logic [543:0] bits0[0:UNIT_SLOTS - 1];
+    logic [543:0] bits1[0:UNIT_SLOTS - 1];
+    logic [6:0] size0[0:UNIT_SLOTS - 1];
+    logic [6:0] size1[0:UNIT_SLOTS - 1];
+    logic [6:0] limits[0:UNIT_SLOTS - 1];
+    logic [3:0] fmts[0:UNIT_SLOTS - 1];
+    logic [3:0] clear_ix[0:UNIT_SLOTS - 1];
     logic [UNIT_ID_W - 1:0] order_mem[0:UNIT_SLOTS - 1];
-    integer head, tail, count;
+    integer head;
+    integer tail;
+    integer count;
     localparam int unsigned STREAM_DATA_BITS = 256;
     localparam int unsigned STREAM_BYTES = STREAM_DATA_BITS / 8;
     localparam int unsigned UNIT_BEATS = 1024 / STREAM_DATA_BITS;
@@ -53,7 +61,9 @@ module udc_enc_pk
     logic [1023:0] packet;
     logic [3:0] selected_cbmd;
     integer byte_count;
-    logic available, push, pop;
+    logic available;
+    logic push;
+    logic pop;
 
     function automatic int advance(input int slot);
         return slot == int'(UNIT_SLOTS) - 1 ? 0 : slot + 1;
@@ -70,24 +80,29 @@ module udc_enc_pk
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [1023:0] compute_packet(
-            input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
-            input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
-            input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
-            input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
-            input integer arg_count,
-            input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
-            input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
-            input logic [UNIT_ID_W - 1:0] arg_head_id,
-            input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
-            input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]);
+        input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
+        input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
+        input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
+        input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
+        input integer arg_count,
+        input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
+        input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
+        input logic [UNIT_ID_W - 1:0] arg_head_id,
+        input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
+        input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]
+    );
         logic [1023:0] value_packet;
         logic [3:0] value_selected_cbmd;
         logic value_available;
         integer value_byte_count;
         begin : form_packet
-            int a, b, total, occupied, start1;
+            int a;
+            int b;
+            int total;
+            int occupied;
+            int start1;
             logic [31:0] fill_word;
             a = 0;
             b = 0;
@@ -176,24 +191,29 @@ module udc_enc_pk
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [3:0] compute_selected_cbmd(
-            input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
-            input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
-            input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
-            input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
-            input integer arg_count,
-            input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
-            input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
-            input logic [UNIT_ID_W - 1:0] arg_head_id,
-            input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
-            input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]);
+        input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
+        input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
+        input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
+        input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
+        input integer arg_count,
+        input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
+        input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
+        input logic [UNIT_ID_W - 1:0] arg_head_id,
+        input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
+        input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]
+    );
         logic [1023:0] value_packet;
         logic [3:0] value_selected_cbmd;
         logic value_available;
         integer value_byte_count;
         begin : form_packet
-            int a, b, total, occupied, start1;
+            int a;
+            int b;
+            int total;
+            int occupied;
+            int start1;
             logic [31:0] fill_word;
             a = 0;
             b = 0;
@@ -282,24 +302,29 @@ module udc_enc_pk
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic compute_available(
-            input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
-            input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
-            input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
-            input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
-            input integer arg_count,
-            input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
-            input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
-            input logic [UNIT_ID_W - 1:0] arg_head_id,
-            input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
-            input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]);
+        input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
+        input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
+        input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
+        input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
+        input integer arg_count,
+        input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
+        input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
+        input logic [UNIT_ID_W - 1:0] arg_head_id,
+        input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
+        input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]
+    );
         logic [1023:0] value_packet;
         logic [3:0] value_selected_cbmd;
         logic value_available;
         integer value_byte_count;
         begin : form_packet
-            int a, b, total, occupied, start1;
+            int a;
+            int b;
+            int total;
+            int occupied;
+            int start1;
             logic [31:0] fill_word;
             a = 0;
             b = 0;
@@ -388,24 +413,29 @@ module udc_enc_pk
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic integer compute_byte_count(
-            input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
-            input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
-            input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
-            input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
-            input integer arg_count,
-            input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
-            input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
-            input logic [UNIT_ID_W - 1:0] arg_head_id,
-            input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
-            input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
-            input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]);
+        input logic [543:0] arg_bits0[0:UNIT_SLOTS - 1],
+        input logic [543:0] arg_bits1[0:UNIT_SLOTS - 1],
+        input logic [UNIT_SLOTS - 1:0] arg_clear_hit,
+        input logic [3:0] arg_clear_ix[0:UNIT_SLOTS - 1],
+        input integer arg_count,
+        input logic [1:0] arg_done[0:UNIT_SLOTS - 1],
+        input logic [1:0] arg_errors[0:UNIT_SLOTS - 1],
+        input logic [UNIT_ID_W - 1:0] arg_head_id,
+        input logic [6:0] arg_limits[0:UNIT_SLOTS - 1],
+        input logic [1023:0] arg_raw_mem[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size0[0:UNIT_SLOTS - 1],
+        input logic [6:0] arg_size1[0:UNIT_SLOTS - 1]
+    );
         logic [1023:0] value_packet;
         logic [3:0] value_selected_cbmd;
         logic value_available;
         integer value_byte_count;
         begin : form_packet
-            int a, b, total, occupied, start1;
+            int a;
+            int b;
+            int total;
+            int occupied;
+            int start1;
             logic [31:0] fill_word;
             a = 0;
             b = 0;

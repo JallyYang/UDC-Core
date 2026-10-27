@@ -1,0 +1,18 @@
+{
+  "liberty_sha256": "8d540a4d4cf6d09d27c87ad067857a9c0c2eeb023ab7a56e058cd3113db4e9b1",
+  "clock_period_ns": 0.6666666666666666,
+  "clock_uncertainty_ns": 0,
+  "driving_cell": "BUF_X1",
+  "load_ff": 1.0,
+  "wire_load_model": "5K_hvratio_1_1",
+  "yosys": "Yosys 0.52 (git sha1 fee39a3284c90249e1d9684cf6944ffbbcbb8f90)",
+  "opensta": "2.0.17",
+  "benchmark": "isolated constant-format reconstruction; ideal clock; pre-layout",
+  "abc": "ABC command line: \"version\".\n\nUC Berkeley, ABC 1.01 (compiled May  4 2025 16:37:33)",
+  "library_source": "https://raw.githubusercontent.com/The-OpenROAD-Project/OpenROAD-flow-scripts/64939f3717ad7c694199ba04cb98924b98022868/flow/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib",
+  "reference_corner": {
+    "process": "Nangate45 typical",
+    "voltage_V": 1.1,
+    "temperature_C": 25
+  }
+}

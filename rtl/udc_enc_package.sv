@@ -49,7 +49,10 @@ module udc_enc_package
         endcase
     endfunction
 
-    function automatic int width_of(input logic [3:0] f, input int c);
+    function automatic int width_of(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -91,7 +94,10 @@ module udc_enc_package
         endcase
     endfunction
 
-    function automatic int samples(input logic [3:0] f, input int c);
+    function automatic int samples(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -120,7 +126,10 @@ module udc_enc_package
         endcase
     endfunction
 
-    function automatic int plane_base(input logic [3:0] f, input int c);
+    function automatic int plane_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -131,7 +140,10 @@ module udc_enc_package
         return v;
     endfunction
 
-    function automatic int pair_base(input logic [3:0] f, input int c);
+    function automatic int pair_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -146,8 +158,13 @@ module udc_enc_package
         return w == 32 ? 5 : (w >= 16 ? 4 : 3);
     endfunction
 
-    function automatic int decode_width(input int ix, input int w);
-        int ib, terminal, dw;
+    function automatic int decode_width(
+        input int ix,
+        input int w
+    );
+        int ib;
+        int terminal;
+        int dw;
         ib = index_bits(w);
         terminal = (1 << ib) - 1;
         dw = - 1;
@@ -175,13 +192,21 @@ module udc_enc_package
     endfunction
 
     function automatic logic [31:0] sample_at(
-            input logic [511:0] v, input int pos, input int w);
+        input logic [511:0] v,
+        input int pos,
+        input int w
+    );
         return 32'(v >> pos) & mask_w(w);
     endfunction
 
     function automatic void put_field(
-            inout logic [543:0] dst, inout int cursor, input bit reverse,
-            input int count, input logic [511:0] value, inout bit bad);
+        inout logic [543:0] dst,
+        inout int cursor,
+        input bit reverse,
+        input int count,
+        input logic [511:0] value,
+        inout bit bad
+    );
         int low_bit;
         low_bit = reverse ? cursor - count + 1 : cursor;
         if (count < 0 || count > 512 || low_bit < 0 || low_bit + count > 544)
@@ -204,19 +229,31 @@ module udc_enc_package
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [543:0] compute_next_bits(
-            input logic [3:0][31:0] arg_s_anchors,
-            input logic arg_s_decor,
-            input logic [511:0] arg_s_deltas,
-            input logic [3:0] arg_s_fmt,
-            input logic [31:0][4:0] arg_s_indexes,
-            input logic [9:0] arg_s_logical_bits,
-            input logic arg_s_pkg_id,
-            input logic [3:0] arg_s_strategy);
+        input logic [3:0][31:0] arg_s_anchors,
+        input logic arg_s_decor,
+        input logic [511:0] arg_s_deltas,
+        input logic [3:0] arg_s_fmt,
+        input logic [31:0][4:0] arg_s_indexes,
+        input logic [9:0] arg_s_logical_bits,
+        input logic arg_s_pkg_id,
+        input logic [3:0] arg_s_strategy
+    );
         logic [543:0] value_next_bits;
         logic [6:0] value_next_size;
         bit value_next_error;
         begin : assemble
-            int bytes, cursor, w, n, ib, pb, ixbase, count, offset, dw, ix, logical_count;
+            int bytes;
+            int cursor;
+            int w;
+            int n;
+            int ib;
+            int pb;
+            int ixbase;
+            int count;
+            int offset;
+            int dw;
+            int ix;
+            int logical_count;
             logic [511:0] field_value;
             logic [31:0] delta;
             bytes = (int'(arg_s_logical_bits) + 7) / 8;
@@ -325,19 +362,31 @@ module udc_enc_package
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [6:0] compute_next_size(
-            input logic [3:0][31:0] arg_s_anchors,
-            input logic arg_s_decor,
-            input logic [511:0] arg_s_deltas,
-            input logic [3:0] arg_s_fmt,
-            input logic [31:0][4:0] arg_s_indexes,
-            input logic [9:0] arg_s_logical_bits,
-            input logic arg_s_pkg_id,
-            input logic [3:0] arg_s_strategy);
+        input logic [3:0][31:0] arg_s_anchors,
+        input logic arg_s_decor,
+        input logic [511:0] arg_s_deltas,
+        input logic [3:0] arg_s_fmt,
+        input logic [31:0][4:0] arg_s_indexes,
+        input logic [9:0] arg_s_logical_bits,
+        input logic arg_s_pkg_id,
+        input logic [3:0] arg_s_strategy
+    );
         logic [543:0] value_next_bits;
         logic [6:0] value_next_size;
         bit value_next_error;
         begin : assemble
-            int bytes, cursor, w, n, ib, pb, ixbase, count, offset, dw, ix, logical_count;
+            int bytes;
+            int cursor;
+            int w;
+            int n;
+            int ib;
+            int pb;
+            int ixbase;
+            int count;
+            int offset;
+            int dw;
+            int ix;
+            int logical_count;
             logic [511:0] field_value;
             logic [31:0] delta;
             bytes = (int'(arg_s_logical_bits) + 7) / 8;
@@ -446,19 +495,31 @@ module udc_enc_package
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic bit compute_next_error(
-            input logic [3:0][31:0] arg_s_anchors,
-            input logic arg_s_decor,
-            input logic [511:0] arg_s_deltas,
-            input logic [3:0] arg_s_fmt,
-            input logic [31:0][4:0] arg_s_indexes,
-            input logic [9:0] arg_s_logical_bits,
-            input logic arg_s_pkg_id,
-            input logic [3:0] arg_s_strategy);
+        input logic [3:0][31:0] arg_s_anchors,
+        input logic arg_s_decor,
+        input logic [511:0] arg_s_deltas,
+        input logic [3:0] arg_s_fmt,
+        input logic [31:0][4:0] arg_s_indexes,
+        input logic [9:0] arg_s_logical_bits,
+        input logic arg_s_pkg_id,
+        input logic [3:0] arg_s_strategy
+    );
         logic [543:0] value_next_bits;
         logic [6:0] value_next_size;
         bit value_next_error;
         begin : assemble
-            int bytes, cursor, w, n, ib, pb, ixbase, count, offset, dw, ix, logical_count;
+            int bytes;
+            int cursor;
+            int w;
+            int n;
+            int ib;
+            int pb;
+            int ixbase;
+            int count;
+            int offset;
+            int dw;
+            int ix;
+            int logical_count;
             logic [511:0] field_value;
             logic [31:0] delta;
             bytes = (int'(arg_s_logical_bits) + 7) / 8;

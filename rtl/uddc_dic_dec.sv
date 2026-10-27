@@ -100,7 +100,7 @@ module uddc_dic_dec
         .m_size_bytes(b_size_bytes),
         .m_error(b_error)
     );
-    uddc_correlation #(.UNIT_ID_W(UNIT_ID_W)) u_color (
+    uddc_correlation #(.UNIT_ID_W(UNIT_ID_W), .REGISTER_OUTPUT(1'b0)) u_color (
         .clk(clk),
         .rst_n(rst_n),
         .s_valid(b_valid),

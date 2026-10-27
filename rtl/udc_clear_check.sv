@@ -21,15 +21,18 @@ module udc_clear_check
         output logic m_hit,
         output logic [3:0] m_index
     );
-    logic [9:0] match_q, match_now, combined;
+    logic [9:0] match_q;
+    logic [9:0] match_now;
+    logic [9:0] combined;
     logic [3:0] index_now;
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [9:0] compute_match_now(
-            input logic [9:0][127:0] arg_cfg_clear_pattern,
-            input logic [9:0] arg_match_q,
-            input logic [255:0] arg_s_data,
-            input logic arg_s_sop);
+        input logic [9:0][127:0] arg_cfg_clear_pattern,
+        input logic [9:0] arg_match_q,
+        input logic [255:0] arg_s_data,
+        input logic arg_s_sop
+    );
         logic [9:0] value_match_now;
         logic [9:0] value_combined;
         logic [3:0] value_index_now;
@@ -52,10 +55,11 @@ module udc_clear_check
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [9:0] compute_combined(
-            input logic [9:0][127:0] arg_cfg_clear_pattern,
-            input logic [9:0] arg_match_q,
-            input logic [255:0] arg_s_data,
-            input logic arg_s_sop);
+        input logic [9:0][127:0] arg_cfg_clear_pattern,
+        input logic [9:0] arg_match_q,
+        input logic [255:0] arg_s_data,
+        input logic arg_s_sop
+    );
         logic [9:0] value_match_now;
         logic [9:0] value_combined;
         logic [3:0] value_index_now;
@@ -78,10 +82,11 @@ module udc_clear_check
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [3:0] compute_index_now(
-            input logic [9:0][127:0] arg_cfg_clear_pattern,
-            input logic [9:0] arg_match_q,
-            input logic [255:0] arg_s_data,
-            input logic arg_s_sop);
+        input logic [9:0][127:0] arg_cfg_clear_pattern,
+        input logic [9:0] arg_match_q,
+        input logic [255:0] arg_s_data,
+        input logic arg_s_sop
+    );
         logic [9:0] value_match_now;
         logic [9:0] value_combined;
         logic [3:0] value_index_now;

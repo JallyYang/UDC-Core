@@ -49,7 +49,10 @@ module uddc_channel_split
         endcase
     endfunction
 
-    function automatic int width_of(input logic [3:0] f, input int c);
+    function automatic int width_of(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -91,7 +94,10 @@ module uddc_channel_split
         endcase
     endfunction
 
-    function automatic int samples(input logic [3:0] f, input int c);
+    function automatic int samples(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -124,7 +130,10 @@ module uddc_channel_split
         return f == 4 || f == 5 || f == 9 || f == 10 || f == 11;
     endfunction
 
-    function automatic int plane_base(input logic [3:0] f, input int c);
+    function automatic int plane_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -139,8 +148,13 @@ module uddc_channel_split
         return w == 32 ? 5 : (w >= 16 ? 4 : 3);
     endfunction
 
-    function automatic int decode_width(input int ix, input int w);
-        int ib, terminal, dw;
+    function automatic int decode_width(
+        input int ix,
+        input int w
+    );
+        int ib;
+        int terminal;
+        int dw;
         ib = index_bits(w);
         terminal = (1 << ib) - 1;
         dw = - 1;
@@ -168,7 +182,11 @@ module uddc_channel_split
     endfunction
 
     function automatic logic [511:0] set_sample(
-            input logic [511:0] v, input int pos, input int w, input logic [31:0] x);
+        input logic [511:0] v,
+        input int pos,
+        input int w,
+        input logic [31:0] x
+    );
         logic [511:0] r;
         // Only the low w bits are stored: modulo 2**w wrap is intentional.
         r = v;
@@ -202,9 +220,14 @@ module uddc_channel_split
     endfunction
 
     function automatic void take_field(
-            input logic [767:0] src, input int bound, input bit reverse,
-            inout int cursor, input int count, output logic [767:0] value,
-            inout bit bad);
+        input logic [767:0] src,
+        input int bound,
+        input bit reverse,
+        inout int cursor,
+        input int count,
+        output logic [767:0] value,
+        inout bit bad
+    );
         int low_bit;
         value = '0;
         low_bit = reverse ? cursor - count + 1 : cursor;
@@ -242,10 +265,11 @@ module uddc_channel_split
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic parsed_t decode_snapshot(
-            input logic [3:0] arg_s_cbmd,
-            input logic arg_s_pkg_id,
-            input logic [767:0] arg_s_region,
-            input logic [6:0] arg_available_bytes);
+        input logic [3:0] arg_s_cbmd,
+        input logic arg_s_pkg_id,
+        input logic [767:0] arg_s_region,
+        input logic [6:0] arg_available_bytes
+    );
         logic [3:0] value_next_fmt;
         logic value_next_decor;
         logic [3:0][31:0] value_next_anchors;
@@ -253,7 +277,19 @@ module uddc_channel_split
         logic [6:0] value_next_size;
         bit value_next_error;
         begin : parse
-            int bound, cursor, w, n, ib, count, ix, offset, total_dw, pb, dw, used, low_cursor;
+            int bound;
+            int cursor;
+            int w;
+            int n;
+            int ib;
+            int count;
+            int ix;
+            int offset;
+            int total_dw;
+            int pb;
+            int dw;
+            int used;
+            int low_cursor;
             int delta_width[0:3][0:62];
             logic [3:0] strategy;
             logic [767:0] field_value;

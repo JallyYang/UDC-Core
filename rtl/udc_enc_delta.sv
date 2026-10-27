@@ -45,7 +45,10 @@ module udc_enc_delta
         endcase
     endfunction
 
-    function automatic int width_of(input logic [3:0] f, input int c);
+    function automatic int width_of(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -87,7 +90,10 @@ module udc_enc_delta
         endcase
     endfunction
 
-    function automatic int samples(input logic [3:0] f, input int c);
+    function automatic int samples(
+        input logic [3:0] f,
+        input int c
+    );
         if (c >= channels(f)) begin
             return 0;
         end
@@ -133,7 +139,10 @@ module udc_enc_delta
         endcase
     endfunction
 
-    function automatic int plane_base(input logic [3:0] f, input int c);
+    function automatic int plane_base(
+        input logic [3:0] f,
+        input int c
+    );
         int v;
         v = 0;
         for (int j = 0; j < 4; j++) begin
@@ -149,12 +158,19 @@ module udc_enc_delta
     endfunction
 
     function automatic logic [31:0] sample_at(
-            input logic [511:0] v, input int pos, input int w);
+        input logic [511:0] v,
+        input int pos,
+        input int w
+    );
         return 32'(v >> pos) & mask_w(w);
     endfunction
 
     function automatic logic [511:0] set_sample(
-            input logic [511:0] v, input int pos, input int w, input logic [31:0] x);
+        input logic [511:0] v,
+        input int pos,
+        input int w,
+        input logic [31:0] x
+    );
         logic [511:0] r;
         // Only the low w bits are stored: modulo 2**w wrap is intentional.
         r = v;
@@ -171,13 +187,19 @@ module udc_enc_delta
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [511:0] compute_next_delta(
-            input logic [3:0] arg_s_fmt,
-            input logic [511:0] arg_s_planes);
+        input logic [3:0] arg_s_fmt,
+        input logic [511:0] arg_s_planes
+    );
         logic [511:0] value_next_delta;
         logic [3:0][31:0] value_next_anchor;
         begin : difference
-            int w, n, pb, pred, rw;
-            logic [31:0] x, p;
+            int w;
+            int n;
+            int pb;
+            int pred;
+            int rw;
+            logic [31:0] x;
+            logic [31:0] p;
             value_next_delta = '0;
             value_next_anchor = '0;
             w = 0;
@@ -210,13 +232,19 @@ module udc_enc_delta
     // Pure combinational calculation; one result, no module-state side effects.
 
     function automatic logic [3:0][31:0] compute_next_anchor(
-            input logic [3:0] arg_s_fmt,
-            input logic [511:0] arg_s_planes);
+        input logic [3:0] arg_s_fmt,
+        input logic [511:0] arg_s_planes
+    );
         logic [511:0] value_next_delta;
         logic [3:0][31:0] value_next_anchor;
         begin : difference
-            int w, n, pb, pred, rw;
-            logic [31:0] x, p;
+            int w;
+            int n;
+            int pb;
+            int pred;
+            int rw;
+            logic [31:0] x;
+            logic [31:0] p;
             value_next_delta = '0;
             value_next_anchor = '0;
             w = 0;

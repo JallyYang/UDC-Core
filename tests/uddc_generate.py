@@ -6,8 +6,6 @@ r = random.Random(47019)
 widths = {1:[8],2:[16],3:[32],4:[16]*4,5:[32]*4,6:[8]*2,7:[16]*2,8:[24,8],9:[11,11,10],10:[8]*4,11:[10,10,10,2],12:[32]*2,13:[32,8,24],14:[32]*3}
 decor_formats = {4,5,9,10,11}
 rows = {1:8,2:8,6:8,5:2}
-records=[]
-coverage=Counter()
 def package(fmt, reverse, style, decor):
     ws=widths[fmt]
     ns=[(6 if c==0 else 5) if fmt==14 else 512//sum(ws) for c in range(len(ws))]
@@ -63,42 +61,49 @@ def package(fmt, reverse, style, decor):
         off+=w
     return size,bits,raw
 
-for mode in range(6,16):
-    pattern=sum((0x10203040+mode-6+j)<<(32*j) for j in range(4))
-    raw=sum(pattern<<(128*j) for j in range(8))
-    records.append((mode,0,raw,0)); coverage[mode]+=1
-for _ in range(20):
-    raw=r.getrandbits(1024)
-    records.append((0,raw,raw,0)); coverage[0]+=1
-for fmt in range(1,15):
-    for trial in range(60):
-        decor=int(fmt in decor_formats and trial%2==1)
-        a,ab,ar=package(fmt,False,r.choice([0,2,4,8,16,32]),decor)
-        b,bb,br=package(fmt,True,r.choice([0,2,4,8,16,32]),decor)
-        total=a+b
-        if max(a,b)>68 or total>96: continue
-        if total<=32: mode,occupied=1,32
-        elif total<=64:
-            mode=2 if a<=32 and b<=32 else 3 if a<32 else 4
-            occupied=64
-        else: mode,occupied=5,96
-        packet=ab | (bb<<((occupied-b)*8))
-        records.append((mode,packet,ar|(br<<512),0)); coverage[mode]+=1
-        if trial%15==0:
-            records.append((mode,packet|3,0,1)); coverage['invalid_reserved']+=1
-# The document allows a package larger than two sectors. Exercise both
-# orientations explicitly instead of relying on the random width choices.
-for wide_role in (0, 1):
-    while True:
-        wide=package(3,bool(wide_role),32,0)
-        if 64 < wide[0] <= 68: break
-    small=package(3,not bool(wide_role),0,0)
-    first,second=(wide,small) if wide_role==0 else (small,wide)
-    a,ab,ar=first
-    b,bb,br=second
-    assert 64 < a+b <= 96
-    records.append((5,ab|(bb<<((96-b)*8)),ar|(br<<512),0))
-    coverage['wide_pkg'+str(wide_role)]+=1
-r.shuffle(records)
-Path(sys.argv[1]).write_text(''.join(f'{m} {bits:0256x} {raw:0256x} {err}\n' for m,bits,raw,err in records))
-print('Generated',len(records),'units; coverage',dict(coverage))
+def generate_vectors():
+    records=[]
+    coverage=Counter()
+    for mode in range(6,16):
+        pattern=sum((0x10203040+mode-6+j)<<(32*j) for j in range(4))
+        raw=sum(pattern<<(128*j) for j in range(8))
+        records.append((mode,0,raw,0)); coverage[mode]+=1
+    for _ in range(20):
+        raw=r.getrandbits(1024)
+        records.append((0,raw,raw,0)); coverage[0]+=1
+    for fmt in range(1,15):
+        for trial in range(60):
+            decor=int(fmt in decor_formats and trial%2==1)
+            a,ab,ar=package(fmt,False,r.choice([0,2,4,8,16,32]),decor)
+            b,bb,br=package(fmt,True,r.choice([0,2,4,8,16,32]),decor)
+            total=a+b
+            if max(a,b)>68 or total>96: continue
+            if total<=32: mode,occupied=1,32
+            elif total<=64:
+                mode=2 if a<=32 and b<=32 else 3 if a<32 else 4
+                occupied=64
+            else: mode,occupied=5,96
+            packet=ab | (bb<<((occupied-b)*8))
+            records.append((mode,packet,ar|(br<<512),0)); coverage[mode]+=1
+            if trial%15==0:
+                records.append((mode,packet|3,0,1)); coverage['invalid_reserved']+=1
+    # The document allows a package larger than two sectors. Exercise both
+    # orientations explicitly instead of relying on the random width choices.
+    for wide_role in (0, 1):
+        while True:
+            wide=package(3,bool(wide_role),32,0)
+            if 64 < wide[0] <= 68: break
+        small=package(3,not bool(wide_role),0,0)
+        first,second=(wide,small) if wide_role==0 else (small,wide)
+        a,ab,ar=first
+        b,bb,br=second
+        assert 64 < a+b <= 96
+        records.append((5,ab|(bb<<((96-b)*8)),ar|(br<<512),0))
+        coverage['wide_pkg'+str(wide_role)]+=1
+    r.shuffle(records)
+    return records,coverage
+
+if __name__ == '__main__':
+    records,coverage=generate_vectors()
+    Path(sys.argv[1]).write_text(''.join(f'{m} {bits:0256x} {raw:0256x} {err}\n' for m,bits,raw,err in records))
+    print('Generated',len(records),'units; coverage',dict(coverage))

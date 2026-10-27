@@ -44,11 +44,16 @@ module udc_enc_split
         input logic retire_valid,
         input logic [UNIT_ID_W - 1:0] retire_unit_id
     );
-    logic [UNIT_SLOTS - 1:0] allocated, complete, clear_done, clear_hits;
+    logic [UNIT_SLOTS - 1:0] allocated;
+    logic [UNIT_SLOTS - 1:0] complete;
+    logic [UNIT_SLOTS - 1:0] clear_done;
+    logic [UNIT_SLOTS - 1:0] clear_hits;
     logic [1023:0] raw_mem[0:UNIT_SLOTS - 1];
-    logic [3:0] fmt_mem[0:UNIT_SLOTS - 1], clear_index_mem[0:UNIT_SLOTS - 1];
+    logic [3:0] fmt_mem[0:UNIT_SLOTS - 1];
+    logic [3:0] clear_index_mem[0:UNIT_SLOTS - 1];
     logic [6:0] limit_mem[0:UNIT_SLOTS - 1];
-    integer wr_slot, dispatch_slot;
+    integer wr_slot;
+    integer dispatch_slot;
     localparam int unsigned STREAM_DATA_BITS = 256;
     localparam int unsigned STREAM_BYTES = STREAM_DATA_BITS / 8;
     localparam int unsigned UNIT_BEATS = 1024 / STREAM_DATA_BITS;
@@ -61,27 +66,70 @@ module udc_enc_split
     localparam logic [1:0] DISPATCH_PKG1 = 2'd2;
     // Encoding 3 is unreachable from reset; retain existing behavior and flag it.
     logic [1:0] dispatch_state;
+    logic [1:0] next_dispatch_state;
 
     function automatic int advance(input int slot);
         return slot == int'(UNIT_SLOTS) - 1 ? 0 : slot + 1;
     endfunction
+    // FSM part 1: current-state register.
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dispatch_state <= DISPATCH_CTX;
+        end else begin
+            dispatch_state <= next_dispatch_state;
+        end
+    end
+
+    // FSM part 2: combinational next-state calculation.
+    always_comb begin
+        next_dispatch_state = dispatch_state;
+        case (dispatch_state)
+            DISPATCH_CTX: begin
+                if (ctx_valid && ctx_ready && !ctx_clear_hit && ctx_limit_bytes != 0)
+                    next_dispatch_state = DISPATCH_PKG0;
+            end
+            DISPATCH_PKG0: begin
+                if (pkg_valid && pkg_ready)
+                    next_dispatch_state = DISPATCH_PKG1;
+            end
+            DISPATCH_PKG1: begin
+                if (pkg_valid && pkg_ready)
+                    next_dispatch_state = DISPATCH_CTX;
+            end
+            default: begin
+                // Preserve the original illegal-state behavior and assertion.
+                if (pkg_valid && pkg_ready)
+                    next_dispatch_state = DISPATCH_CTX;
+            end
+        endcase
+    end
+
+    // FSM part 3: combinational outputs, one target per process.
     assign s_ready = rst_n && (collecting || !allocated[wr_slot]) &&
         (!clear_req_valid || clear_req_ready);
     assign clear_rsp_ready = rst_n;
-    assign ctx_valid = rst_n && complete[dispatch_slot] && clear_done[dispatch_slot] &&
+    always_comb begin
+        ctx_valid = rst_n && complete[dispatch_slot] && clear_done[dispatch_slot] &&
         dispatch_state == DISPATCH_CTX;
+    end
     assign ctx_unit_id = UNIT_ID_W'($unsigned(dispatch_slot));
     assign ctx_fmt = fmt_mem[dispatch_slot];
     assign ctx_limit_bytes = limit_mem[dispatch_slot];
     assign ctx_clear_hit = clear_hits[dispatch_slot];
     assign ctx_clear_index = clear_index_mem[dispatch_slot];
     assign ctx_raw = raw_mem[dispatch_slot];
-    assign pkg_valid = rst_n && dispatch_state != DISPATCH_CTX;
+    always_comb begin
+        pkg_valid = rst_n && dispatch_state != DISPATCH_CTX;
+    end
     assign pkg_unit_id = UNIT_ID_W'($unsigned(dispatch_slot));
-    assign pkg_pkg_id = dispatch_state == DISPATCH_PKG1;
+    always_comb begin
+        pkg_pkg_id = dispatch_state == DISPATCH_PKG1;
+    end
     assign pkg_fmt = fmt_mem[dispatch_slot];
-    assign pkg_raw = dispatch_state == DISPATCH_PKG1 ? raw_mem[dispatch_slot][1023:512] :
+    always_comb begin
+        pkg_raw = dispatch_state == DISPATCH_PKG1 ? raw_mem[dispatch_slot][1023:512] :
         raw_mem[dispatch_slot][511:0];
+    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -216,29 +264,6 @@ module udc_enc_split
                 end
                 else begin
                     collecting <= 1;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dispatch_state <= DISPATCH_CTX;
-        end
-        else begin
-            if (ctx_valid && ctx_ready) begin
-                if (ctx_clear_hit || ctx_limit_bytes == 0) begin
-                end
-                else begin
-                    dispatch_state <= DISPATCH_PKG0;
-                end
-            end
-            if (pkg_valid && pkg_ready) begin
-                if (dispatch_state == DISPATCH_PKG0) begin
-                    dispatch_state <= DISPATCH_PKG1;
-                end
-                else begin
-                    dispatch_state <= DISPATCH_CTX;
                 end
             end
         end
