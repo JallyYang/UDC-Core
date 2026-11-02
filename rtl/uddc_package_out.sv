@@ -98,11 +98,11 @@ module uddc_package_out
         return slot == int'(UNIT_SLOTS) - 1 ? 0 : slot + 1;
     endfunction
     assign head_id = count != 0 ? order_mem[head] : '0;
-    assign ctx_ready = rst_n && count < int'(UNIT_SLOTS) && int'(ctx_unit_id) < int'(UNIT_SLOTS) &&
+    assign ctx_ready = count < int'(UNIT_SLOTS) && int'(ctx_unit_id) < int'(UNIT_SLOTS) &&
         !live[ctx_unit_id];
-    assign pkg_ready = rst_n && int'(pkg_unit_id) < int'(UNIT_SLOTS) &&
+    assign pkg_ready = int'(pkg_unit_id) < int'(UNIT_SLOTS) &&
         live[pkg_unit_id] && !done[pkg_unit_id][pkg_pkg_id];
-    assign clear_ready = rst_n && int'(clear_unit_id) < int'(UNIT_SLOTS) &&
+    assign clear_ready = int'(clear_unit_id) < int'(UNIT_SLOTS) &&
         live[clear_unit_id] && !clear_done[clear_unit_id];
     assign push = ctx_valid && ctx_ready;
     assign pop = m_valid && m_ready && m_last;
@@ -233,7 +233,7 @@ module uddc_package_out
             end
         end
     end
-    assign m_valid = rst_n && available;
+    assign m_valid = available;
     assign m_sop = beat == 0;
     assign m_last = beat == LAST_UNIT_BEAT;
     assign m_error = unit_error;

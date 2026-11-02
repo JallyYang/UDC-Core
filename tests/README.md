@@ -97,3 +97,13 @@ A second driver checks 18 continuous cases of 128 units each and first-output
 latency. Set `UDC_TEST_BUILD_DIR` and `UDC_TEST_JOBS` to control build location
 and parallelism. This test needs the baseline commit in local Git history.
 See [streaming architecture](../docs/UDC_STREAMING.md) for stage boundaries.
+
+## Shared-reset recovery
+
+Both core drivers run `core_reset_check.h` before their normal regressions.
+All peers share reset and no transfer is counted during reset; ready/valid
+levels are not required to be low. The checks interrupt every input prefix
+of a DIC unit, with 0/3/12 idle cycles before reset and output held stalled,
+then require a fresh raw unit to return with exact data and framing, no stale
+output and no extra output. This covers 12 encoder and 9 decoder reset cases.
+Sequential reset/write guards remain in place.

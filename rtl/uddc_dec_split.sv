@@ -128,14 +128,14 @@ module uddc_dec_split
     end
 
     // FSM part 3: combinational outputs, one target per process.
-    assign s_ready = rst_n && (collecting || !allocated[wr_slot]);
+    assign s_ready = (collecting || !allocated[wr_slot]);
     assign input_accepted = s_valid && s_ready;
     // A compressed first beat can allocate its output context and parsing
     // snapshot together. Buffered units still dispatch strictly in order.
     assign bypass_ctx = input_accepted && !collecting && wr_slot == dispatch_slot &&
                         !started[dispatch_slot] && s_cbmd >= 1 && s_cbmd <= 5;
     always_comb begin
-        ctx_valid = rst_n && dispatch_state == DISPATCH_CTX &&
+        ctx_valid = dispatch_state == DISPATCH_CTX &&
                        (bypass_ctx || (started[dispatch_slot] &&
                         (cbmd_mem[dispatch_slot] != 0 || complete[dispatch_slot])));
     end
@@ -148,7 +148,7 @@ module uddc_dec_split
     // This permits pkg0 to retire before the occupied region is complete.
     assign package_parse_finished = package_request_accepted && pkg_done;
     always_comb begin
-        clear_valid = rst_n && dispatch_state == DISPATCH_CLEAR;
+        clear_valid = dispatch_state == DISPATCH_CLEAR;
     end
     assign clear_unit_id = UNIT_ID_W'(dispatch_slot);
     assign clear_index = cbmd_mem[dispatch_slot] - 4'd6;
@@ -156,7 +156,7 @@ module uddc_dec_split
 
     always_comb begin
         load_snapshot = 0;
-        if (rst_n && (!pkg_valid || pkg_ready)) begin
+        if (!pkg_valid || pkg_ready) begin
             if (context_accepted && ctx_cbmd >= 1 && ctx_cbmd <= 5) begin
                 load_snapshot = 1;
             end else begin

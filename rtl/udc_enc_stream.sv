@@ -455,7 +455,7 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
     logic package_ready;
     candidate_t head_candidate;
     // A first half only updates local state; it needs no candidate FIFO entry.
-    assign s_ready = rst_n && (!s_enable || !input_beat[0] || queued<2);
+    assign s_ready = (!s_enable || !input_beat[0] || queued<2);
     assign input_accepted = s_valid && s_ready;
     assign original_next = analyze_half(s_data,s_fmt,input_beat[0],1'b0,original_partial);
     assign color_next = analyze_half(s_data,s_fmt,input_beat[0],can_decor(s_fmt),color_partial);

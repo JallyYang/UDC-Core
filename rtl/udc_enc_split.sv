@@ -107,13 +107,13 @@ module udc_enc_split
     end
 
     // FSM part 3: combinational outputs, one target per process.
-    assign s_ready = rst_n && (collecting || !allocated[wr_slot]) &&
+    assign s_ready = (collecting || !allocated[wr_slot]) &&
         (!clear_req_valid || clear_req_ready);
     assign clear_req_fmt = fmt_mem[clear_req_unit_id];
     assign clear_req_enable = limit_mem[clear_req_unit_id] != 0;
-    assign clear_rsp_ready = rst_n;
+    assign clear_rsp_ready = 1'b1;
     always_comb begin
-        ctx_valid = rst_n && complete[dispatch_slot] && clear_done[dispatch_slot] &&
+        ctx_valid = complete[dispatch_slot] && clear_done[dispatch_slot] &&
         dispatch_state == DISPATCH_CTX;
     end
     assign ctx_unit_id = UNIT_ID_W'($unsigned(dispatch_slot));
@@ -123,7 +123,7 @@ module udc_enc_split
     assign ctx_clear_index = clear_index_mem[dispatch_slot];
     assign ctx_raw = raw_mem[dispatch_slot];
     always_comb begin
-        pkg_valid = rst_n && dispatch_state != DISPATCH_CTX;
+        pkg_valid = dispatch_state != DISPATCH_CTX;
     end
     assign pkg_unit_id = UNIT_ID_W'($unsigned(dispatch_slot));
     always_comb begin

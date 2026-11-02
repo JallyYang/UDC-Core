@@ -315,8 +315,8 @@ module uddc_correlation
                 end
             end
         end else begin : direct_output
-            assign s_ready = rst_n && m_ready;
-            assign m_valid = rst_n && s_valid;
+            assign s_ready = m_ready;
+            assign m_valid = s_valid;
             assign m_unit_id = s_unit_id;
             assign m_pkg_id = s_pkg_id;
             assign m_fmt = s_error ? '0 : s_fmt;

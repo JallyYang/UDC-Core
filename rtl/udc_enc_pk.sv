@@ -69,9 +69,9 @@ module udc_enc_pk
         return slot == int'(UNIT_SLOTS) - 1 ? 0 : slot + 1;
     endfunction
     assign head_id = count != 0 ? order_mem[head] : '0;
-    assign ctx_ready = rst_n && count < int'(UNIT_SLOTS) && int'(ctx_unit_id) < int'(UNIT_SLOTS) &&
+    assign ctx_ready = count < int'(UNIT_SLOTS) && int'(ctx_unit_id) < int'(UNIT_SLOTS) &&
         !live[ctx_unit_id];
-    assign pkg_ready = rst_n && int'(pkg_unit_id) < int'(UNIT_SLOTS) &&
+    assign pkg_ready = int'(pkg_unit_id) < int'(UNIT_SLOTS) &&
         live[pkg_unit_id] && !done[pkg_unit_id][pkg_pkg_id];
     assign push = ctx_valid && ctx_ready;
     assign pop = m_valid && m_ready && m_last;
@@ -521,7 +521,7 @@ module udc_enc_pk
         return value_byte_count;
     endfunction
     assign byte_count = compute_byte_count(bits0, bits1, clear_hit, clear_ix, count, done, errors, head_id, limits, raw_mem, size0, size1);
-    assign m_valid = rst_n && available;
+    assign m_valid = available;
     assign m_data = packet[int'(beat) * int'(STREAM_DATA_BITS) +: STREAM_DATA_BITS];
     assign m_sop = beat == 0;
     assign m_has_data = selected_cbmd < 6;
