@@ -117,7 +117,7 @@ module udc_enc_pk
             if (arg_count != 0) begin
                 value_packet = arg_raw_mem[arg_head_id];
                 if (arg_clear_hit[arg_head_id]) begin
-                    value_available = 1;
+                    value_available = arg_limits[arg_head_id] == 0 || (&arg_done[arg_head_id]);
                     value_selected_cbmd = 4'd6 + arg_clear_ix[arg_head_id];
                     value_packet = '0;
                     value_byte_count = 0;
@@ -228,7 +228,7 @@ module udc_enc_pk
             if (arg_count != 0) begin
                 value_packet = arg_raw_mem[arg_head_id];
                 if (arg_clear_hit[arg_head_id]) begin
-                    value_available = 1;
+                    value_available = arg_limits[arg_head_id] == 0 || (&arg_done[arg_head_id]);
                     value_selected_cbmd = 4'd6 + arg_clear_ix[arg_head_id];
                     value_packet = '0;
                     value_byte_count = 0;
@@ -339,7 +339,7 @@ module udc_enc_pk
             if (arg_count != 0) begin
                 value_packet = arg_raw_mem[arg_head_id];
                 if (arg_clear_hit[arg_head_id]) begin
-                    value_available = 1;
+                    value_available = arg_limits[arg_head_id] == 0 || (&arg_done[arg_head_id]);
                     value_selected_cbmd = 4'd6 + arg_clear_ix[arg_head_id];
                     value_packet = '0;
                     value_byte_count = 0;
@@ -450,7 +450,7 @@ module udc_enc_pk
             if (arg_count != 0) begin
                 value_packet = arg_raw_mem[arg_head_id];
                 if (arg_clear_hit[arg_head_id]) begin
-                    value_available = 1;
+                    value_available = arg_limits[arg_head_id] == 0 || (&arg_done[arg_head_id]);
                     value_selected_cbmd = 4'd6 + arg_clear_ix[arg_head_id];
                     value_packet = '0;
                     value_byte_count = 0;

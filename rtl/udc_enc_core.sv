@@ -25,6 +25,10 @@ module udc_enc_core
         output logic m_has_data,
         output logic [3:0] m_cbmd
     );
+    logic [3:0] clear_req_fmt;
+    logic clear_req_enable;
+    logic clear_check_ready;
+    logic stream_ready;
     logic clear_req_valid;
     logic clear_req_ready;
     logic [UNIT_ID_W - 1:0] clear_req_unit_id;
@@ -70,6 +74,8 @@ module udc_enc_core
         .s_last(s_last),
         .s_udc_format(s_udc_format),
         .s_package_size_limit(s_package_size_limit),
+        .clear_req_fmt(clear_req_fmt),
+        .clear_req_enable(clear_req_enable),
         .clear_req_valid(clear_req_valid),
         .clear_req_ready(clear_req_ready),
         .clear_req_unit_id(clear_req_unit_id),
@@ -102,8 +108,8 @@ module udc_enc_core
         .clk(clk),
         .rst_n(rst_n),
         .cfg_clear_pattern(cfg_clear_pattern),
-        .s_valid(clear_req_valid),
-        .s_ready(clear_req_ready),
+        .s_valid(clear_req_valid && stream_ready),
+        .s_ready(clear_check_ready),
         .s_unit_id(clear_req_unit_id),
         .s_sop(clear_req_sop),
         .s_last(clear_req_last),
@@ -114,23 +120,16 @@ module udc_enc_core
         .m_hit(clear_rsp_hit),
         .m_index(clear_rsp_index)
     );
-    udc_dic_enc #(.UNIT_ID_W(UNIT_ID_W)) u_dic (
-        .clk(clk),
-        .rst_n(rst_n),
-        .s_valid(req_valid),
-        .s_ready(req_ready),
-        .s_unit_id(req_unit_id),
-        .s_pkg_id(req_pkg_id),
-        .s_fmt(req_fmt),
-        .s_raw(req_raw),
-        .m_valid(result_valid),
-        .m_ready(result_ready),
-        .m_unit_id(result_unit_id),
-        .m_pkg_id(result_pkg_id),
-        .m_fmt(result_fmt),
-        .m_size_bytes(result_size_bytes),
-        .m_bits(result_bits),
-        .m_error(result_error)
+    assign clear_req_ready = clear_check_ready && stream_ready;
+    assign req_ready = 1'b1;
+    udc_enc_stream #(.UNIT_ID_W(UNIT_ID_W)) u_stream (
+        .clk(clk), .rst_n(rst_n),
+        .s_valid(clear_req_valid && clear_check_ready), .s_ready(stream_ready),
+        .s_data(clear_req_data), .s_sop(clear_req_sop), .s_last(clear_req_last),
+        .s_unit_id(clear_req_unit_id), .s_fmt(clear_req_fmt), .s_enable(clear_req_enable),
+        .m_valid(result_valid), .m_ready(result_ready), .m_unit_id(result_unit_id),
+        .m_pkg_id(result_pkg_id), .m_fmt(result_fmt), .m_size_bytes(result_size_bytes),
+        .m_bits(result_bits), .m_error(result_error)
     );
     udc_enc_pk #(.UNIT_ID_W(UNIT_ID_W), .UNIT_SLOTS(UNIT_SLOTS)) u_pk (
         .clk(clk),

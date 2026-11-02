@@ -226,9 +226,14 @@ module udc_enc_index_sel
     logic [3:0] next_strategy;
     logic [31:0][4:0] next_indexes;
     logic [9:0] next_length;
-    // Pure combinational calculation; one result, no module-state side effects.
+    typedef struct packed {
+        logic [3:0] strategy;
+        logic [31:0][4:0] indexes;
+        logic [9:0] length;
+    } index_selection_t;
+    index_selection_t index_selection;
 
-    function automatic logic [3:0] compute_next_strategy(
+    function automatic index_selection_t compute_index_selection(
         input logic [511:0] arg_s_deltas,
         input logic [3:0] arg_s_fmt
     );
@@ -317,197 +322,12 @@ module udc_enc_index_sel
             end
             value_next_length = 10'($unsigned(total));
         end
-        return value_next_strategy;
+        return {value_next_strategy, value_next_indexes, value_next_length};
     endfunction
-    assign next_strategy = compute_next_strategy(s_deltas, s_fmt);
-    // Pure combinational calculation; one result, no module-state side effects.
-
-    function automatic logic [31:0][4:0] compute_next_indexes(
-        input logic [511:0] arg_s_deltas,
-        input logic [3:0] arg_s_fmt
-    );
-        logic [3:0] value_next_strategy;
-        logic [31:0][4:0] value_next_indexes;
-        logic [9:0] value_next_length;
-        begin : choose_widths
-            int w;
-            int n;
-            int pb;
-            int ib;
-            int base_ix;
-            int pairs;
-            int global_ix;
-            int ix0;
-            int ix1;
-            int pix;
-            int global_cost;
-            int pair_cost;
-            int total;
-            int delta_count;
-            int pair_ix[0:31];
-            value_next_strategy = '0;
-            value_next_indexes = '0;
-            value_next_length = '0;
-            w = 0;
-            n = 0;
-            pb = 0;
-            ib = 0;
-            base_ix = 0;
-            pairs = 0;
-            global_ix = 0;
-            ix0 = 0;
-            ix1 = 0;
-            pix = 0;
-            global_cost = 0;
-            pair_cost = 0;
-            delta_count = 0;
-            total = 7;
-            for (int p = 0; p < 32; p++) begin
-                pair_ix[p] = 0;
-            end
-            for (int c = 0; c < 4; c++) begin
-                if (c < channels(arg_s_fmt)) begin
-                    w = width_of(arg_s_fmt, c);
-                    n = samples(arg_s_fmt, c);
-                    pb = plane_base(arg_s_fmt, c);
-                    ib = index_bits(w);
-                    base_ix = pair_base(arg_s_fmt, c);
-                    pairs = n / 2;
-                    global_ix = 0;
-                    pair_cost = 1 + pairs * ib;
-                    for (int p = 0; p < 32; p++) begin
-                        pair_ix[p] = 0;
-                        if (p < pairs) begin
-                            ix0 = min_index(sample_at(arg_s_deltas, pb + (2 * p + 1) * w, w), w);
-                            ix1 = 0;
-                            delta_count = 1;
-                            if (2 * p + 2 < n) begin
-                                ix1 = min_index(sample_at(arg_s_deltas, pb + (2 * p + 2) * w, w), w);
-                                delta_count = 2;
-                            end
-                            pix = ix0 > ix1 ? ix0 : ix1;
-                            pair_ix[p] = pix;
-                            if (pix > global_ix) begin
-                                global_ix = pix;
-                            end
-                            pair_cost += decode_width(pix, w) * delta_count;
-                        end
-                    end
-                    global_cost = 1 + ib + (n - 1) * decode_width(global_ix, w);
-                    if (pair_cost < global_cost) begin
-                        value_next_strategy[c] = 1;
-                        for (int p = 0; p < 32; p++) begin
-                            if (p < pairs) begin
-                                value_next_indexes[base_ix + p] = 5'($unsigned(pair_ix[p]));
-                            end
-                        end
-                        total += pair_cost + w;
-                    end
-                    else begin
-                        value_next_indexes[base_ix] = 5'($unsigned(global_ix));
-                        total += global_cost + w;
-                    end
-                end
-            end
-            value_next_length = 10'($unsigned(total));
-        end
-        return value_next_indexes;
-    endfunction
-    assign next_indexes = compute_next_indexes(s_deltas, s_fmt);
-    // Pure combinational calculation; one result, no module-state side effects.
-
-    function automatic logic [9:0] compute_next_length(
-        input logic [511:0] arg_s_deltas,
-        input logic [3:0] arg_s_fmt
-    );
-        logic [3:0] value_next_strategy;
-        logic [31:0][4:0] value_next_indexes;
-        logic [9:0] value_next_length;
-        begin : choose_widths
-            int w;
-            int n;
-            int pb;
-            int ib;
-            int base_ix;
-            int pairs;
-            int global_ix;
-            int ix0;
-            int ix1;
-            int pix;
-            int global_cost;
-            int pair_cost;
-            int total;
-            int delta_count;
-            int pair_ix[0:31];
-            value_next_strategy = '0;
-            value_next_indexes = '0;
-            value_next_length = '0;
-            w = 0;
-            n = 0;
-            pb = 0;
-            ib = 0;
-            base_ix = 0;
-            pairs = 0;
-            global_ix = 0;
-            ix0 = 0;
-            ix1 = 0;
-            pix = 0;
-            global_cost = 0;
-            pair_cost = 0;
-            delta_count = 0;
-            total = 7;
-            for (int p = 0; p < 32; p++) begin
-                pair_ix[p] = 0;
-            end
-            for (int c = 0; c < 4; c++) begin
-                if (c < channels(arg_s_fmt)) begin
-                    w = width_of(arg_s_fmt, c);
-                    n = samples(arg_s_fmt, c);
-                    pb = plane_base(arg_s_fmt, c);
-                    ib = index_bits(w);
-                    base_ix = pair_base(arg_s_fmt, c);
-                    pairs = n / 2;
-                    global_ix = 0;
-                    pair_cost = 1 + pairs * ib;
-                    for (int p = 0; p < 32; p++) begin
-                        pair_ix[p] = 0;
-                        if (p < pairs) begin
-                            ix0 = min_index(sample_at(arg_s_deltas, pb + (2 * p + 1) * w, w), w);
-                            ix1 = 0;
-                            delta_count = 1;
-                            if (2 * p + 2 < n) begin
-                                ix1 = min_index(sample_at(arg_s_deltas, pb + (2 * p + 2) * w, w), w);
-                                delta_count = 2;
-                            end
-                            pix = ix0 > ix1 ? ix0 : ix1;
-                            pair_ix[p] = pix;
-                            if (pix > global_ix) begin
-                                global_ix = pix;
-                            end
-                            pair_cost += decode_width(pix, w) * delta_count;
-                        end
-                    end
-                    global_cost = 1 + ib + (n - 1) * decode_width(global_ix, w);
-                    if (pair_cost < global_cost) begin
-                        value_next_strategy[c] = 1;
-                        for (int p = 0; p < 32; p++) begin
-                            if (p < pairs) begin
-                                value_next_indexes[base_ix + p] = 5'($unsigned(pair_ix[p]));
-                            end
-                        end
-                        total += pair_cost + w;
-                    end
-                    else begin
-                        value_next_indexes[base_ix] = 5'($unsigned(global_ix));
-                        total += global_cost + w;
-                    end
-                end
-            end
-            value_next_length = 10'($unsigned(total));
-        end
-        return value_next_length;
-    endfunction
-    assign next_length = compute_next_length(s_deltas, s_fmt);
+    assign index_selection = compute_index_selection(s_deltas, s_fmt);
+    assign next_strategy = index_selection.strategy;
+    assign next_indexes = index_selection.indexes;
+    assign next_length = index_selection.length;
     assign s_ready = !m_valid || m_ready;
 
     always_ff @(posedge clk or negedge rst_n) begin

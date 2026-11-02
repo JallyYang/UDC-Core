@@ -21,6 +21,9 @@
 [加法树实验](synthesis/adder_tree_compare/README.md) 使用 Nangate45 参考库，
 不能据此认定 TSMC7 达标，也不能替代完整解码通路的 STA。
 
+当前编码器采用 [32B 分拍编码路径](docs/UDC_STREAMING.md)，Clear 与 DIC 并行，
+Clear 命中也等待已启动的两个 DIC 包处理完成。
+
 验证入口：
 
 ```bash
@@ -29,6 +32,7 @@ python3 tests/check_rtl_style.py
 
 # Python 3 + Verilator + C++20 编译器
 bash tests/run_uddc.sh
+bash tests/run_udc_stream.sh
 ```
 
 回归覆盖与逐拍性能条件见 [tests/README.md](tests/README.md)，

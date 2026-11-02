@@ -184,9 +184,13 @@ module udc_enc_delta
     endfunction
     logic [511:0] next_delta;
     logic [3:0][31:0] next_anchor;
-    // Pure combinational calculation; one result, no module-state side effects.
+    typedef struct packed {
+        logic [511:0] deltas;
+        logic [3:0][31:0] anchors;
+    } difference_result_t;
+    difference_result_t difference_result;
 
-    function automatic logic [511:0] compute_next_delta(
+    function automatic difference_result_t compute_difference(
         input logic [3:0] arg_s_fmt,
         input logic [511:0] arg_s_planes
     );
@@ -226,54 +230,11 @@ module udc_enc_delta
                 end
             end
         end
-        return value_next_delta;
+        return {value_next_delta, value_next_anchor};
     endfunction
-    assign next_delta = compute_next_delta(s_fmt, s_planes);
-    // Pure combinational calculation; one result, no module-state side effects.
-
-    function automatic logic [3:0][31:0] compute_next_anchor(
-        input logic [3:0] arg_s_fmt,
-        input logic [511:0] arg_s_planes
-    );
-        logic [511:0] value_next_delta;
-        logic [3:0][31:0] value_next_anchor;
-        begin : difference
-            int w;
-            int n;
-            int pb;
-            int pred;
-            int rw;
-            logic [31:0] x;
-            logic [31:0] p;
-            value_next_delta = '0;
-            value_next_anchor = '0;
-            w = 0;
-            n = 0;
-            pb = 0;
-            pred = 0;
-            rw = row_width(arg_s_fmt);
-            x = 0;
-            p = 0;
-            for (int c = 0; c < 4; c++) begin
-                w = width_of(arg_s_fmt, c);
-                n = samples(arg_s_fmt, c);
-                pb = plane_base(arg_s_fmt, c);
-                if (n > 0) begin
-                    value_next_anchor[c] = sample_at(arg_s_planes, pb, w);
-                end
-                for (int k = 1; k < 64; k++) begin
-                    if (k < n) begin
-                        pred = arg_s_fmt == 14 || (k % rw) != 0 ? k - 1 : k - rw;
-                        x = sample_at(arg_s_planes, pb + k * w, w);
-                        p = sample_at(arg_s_planes, pb + pred * w, w);
-                        value_next_delta = set_sample(value_next_delta, pb + k * w, w, x - p);
-                    end
-                end
-            end
-        end
-        return value_next_anchor;
-    endfunction
-    assign next_anchor = compute_next_anchor(s_fmt, s_planes);
+    assign difference_result = compute_difference(s_fmt, s_planes);
+    assign next_delta = difference_result.deltas;
+    assign next_anchor = difference_result.anchors;
     assign s_ready = !m_valid || m_ready;
 
     always_ff @(posedge clk or negedge rst_n) begin

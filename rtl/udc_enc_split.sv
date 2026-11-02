@@ -16,6 +16,8 @@ module udc_enc_split
         input logic s_last,
         input logic [3:0] s_udc_format,
         input logic [6:0] s_package_size_limit,
+        output logic [3:0] clear_req_fmt,
+        output logic clear_req_enable,
         output logic clear_req_valid,
         input logic clear_req_ready,
         output logic [UNIT_ID_W - 1:0] clear_req_unit_id,
@@ -107,6 +109,8 @@ module udc_enc_split
     // FSM part 3: combinational outputs, one target per process.
     assign s_ready = rst_n && (collecting || !allocated[wr_slot]) &&
         (!clear_req_valid || clear_req_ready);
+    assign clear_req_fmt = fmt_mem[clear_req_unit_id];
+    assign clear_req_enable = limit_mem[clear_req_unit_id] != 0;
     assign clear_rsp_ready = rst_n;
     always_comb begin
         ctx_valid = rst_n && complete[dispatch_slot] && clear_done[dispatch_slot] &&

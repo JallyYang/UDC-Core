@@ -86,3 +86,14 @@ the directed case now has three gap cycles rather than six. There is no new
 output prefill policy. These latency reductions are in clock cycles; the
 merged color/pixel path and output-forwarding path require static timing
 analysis before claiming a frequency or elapsed-time improvement.
+
+## UDC streaming regression
+
+Run `bash tests/run_udc_stream.sh` for 512 bit-exact encoder comparisons against
+the pinned `b732757` baseline, with independently stalled inputs and outputs,
+all format codes, size limits, Clear and slot reuse. The reference sources are
+extracted into the temporary build directory; the working RTL is not replaced.
+A second driver checks 18 continuous cases of 128 units each and first-output
+latency. Set `UDC_TEST_BUILD_DIR` and `UDC_TEST_JOBS` to control build location
+and parallelism. This test needs the baseline commit in local Git history.
+See [streaming architecture](../docs/UDC_STREAMING.md) for stage boundaries.
