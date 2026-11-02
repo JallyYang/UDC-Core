@@ -11,6 +11,10 @@
   registered output timing; adding a register solely for style changes latency.
 - Preserve reset behavior, clock enables and the priority of multiple writes
   to one variable when splitting a process. Keep protocol assertions.
+- Express competing updates to the same register bit with explicit `if / else if`
+  branches rather than relying on the order of nonblocking assignments. For
+  indexed flags, update each slot independently so different slots can still
+  change in the same cycle.
 - Prefer descriptive event names such as `input_accepted` and
   `package_parse_finished` over abbreviations such as `fire`.
 

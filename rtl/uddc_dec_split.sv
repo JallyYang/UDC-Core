@@ -420,17 +420,16 @@ module uddc_dec_split
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            started <= '0;
-        end else begin
-            if (input_accepted) begin
-                if (!collecting) begin
-                    started[wr_slot] <= 1;
-                end
-            end
-            if (context_accepted) begin
-                started[dispatch_slot] <= 0;
+    // Update each slot independently. A context accepted on its first input
+    // beat is already delivered, so clearing takes explicit priority.
+    for (genvar slot_index = 0; slot_index < UNIT_SLOTS; slot_index++) begin : context_pending_flag
+        always_ff @(posedge clk or negedge rst_n) begin
+            if (!rst_n) begin
+                started[slot_index] <= 1'b0;
+            end else if (context_accepted && dispatch_slot == slot_index) begin
+                started[slot_index] <= 1'b0;
+            end else if (input_accepted && !collecting && wr_slot == slot_index) begin
+                started[slot_index] <= 1'b1;
             end
         end
     end
