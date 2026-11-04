@@ -2,7 +2,8 @@
 
 本文描述当前 RTL：UDC 采用 32B 分拍编码，UDDC 采用连续前缀解析和三个默认开启的
 可选寄存点。逐拍细节分别见 [UDC 分拍编码](UDC_STREAMING.md) 和
-[UDDC 解析流水](UDDC_PARSER_PIPELINE.md)。算法字段以
+[UDDC 解析流水](UDDC_PARSER_PIPELINE.md)，解析器的逐函数说明见
+[channel_split 模块详解](UDDC_CHANNEL_SPLIT.md)。算法字段以
 [DicAlgo.html](../DicAlgo.html) 为参考；工艺目标、周期行为及验证条件分别标明。
 外部核心接口保持兼容，新增握手信号仅用于解码子模块之间。
 

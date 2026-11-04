@@ -21,5 +21,11 @@ future edits. Read [rtl/STYLE.md](rtl/STYLE.md) before changing RTL.
   combinational modes with matching data, valid, ready, tags and error state.
 - Update architecture, macro/port descriptions, cycle tables, tests and comments
   with RTL changes. Label default, bypass and historical configurations clearly.
+- Maintain `docs/UDDC_CHANNEL_SPLIT.md` alongside `uddc_channel_split.sv`,
+  `uddc_parse_stage.sv`, and splitter/parser handshake changes in the same
+  commit. Keep variable meanings before behavior, function descriptions, bit
+  layout examples, macro defaults, response/dedup rules, backpressure and cycle
+  tables accurate. Also update the linked pipeline/architecture/test documents;
+  do not preserve obsolete behavior as a description of the current design.
 - Run `python3 tests/check_rtl_style.py` and the regressions relevant to changed
   datapaths. The style checker rejects structures throughout `rtl/`.

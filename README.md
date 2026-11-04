@@ -25,6 +25,7 @@
 Clear 命中也等待已启动的两个 DIC 包处理完成。
 
 当前解码器采用 [三个可选解析寄存点](docs/UDDC_PARSER_PIPELINE.md)，默认全开。
+接口变量、逐函数行为及去重/反压逻辑见 [channel_split 模块详解](docs/UDDC_CHANNEL_SPLIT.md)。
 pkg0 从首拍 32B 启动，后续快照连续送入并去重；96B 定向案例 T13 首拍输出，
 单扇区为 T11。全关时使用 T8～T10 的旁路配置，具体条件见流水说明。
 

@@ -29,6 +29,8 @@
   directives. Do not add `translate_off/on` simulation blocks to RTL.
 - Update architecture, interfaces, cycle tables, test commands and code comments
   together with functional or pipeline changes; label nondefault configurations.
+  Parser changes must also update [the module explanation](../docs/UDDC_CHANNEL_SPLIT.md)
+  in the same commit, following the maintenance map in AGENTS.md.
 
 Run `python3 tests/check_rtl_style.py` with `pyslang==12.1.0` installed to check
 the structure ban, declarations, assignment targets, both dispatch FSMs and
