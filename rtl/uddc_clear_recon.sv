@@ -15,40 +15,15 @@ module uddc_clear_recon
         output logic [UNIT_ID_W - 1:0] m_unit_id,
         output logic [1023:0] m_raw
     );
-    assign s_ready = !m_valid || m_ready;
+    localparam int OUTPUT_WIDTH = UNIT_ID_W+1024;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 1'b0;
-        end
-        else begin
-            if (s_ready) begin
-                m_valid <= s_valid;
-            end
-        end
-    end
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(OUTPUT_WIDTH)) u_output_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(s_valid), .ready_o(s_ready),
+        .ready_i(m_ready), .valid_o(m_valid),
+        .payload_i({s_unit_id, s_index < 10 ? {8{cfg_clear_pattern[s_index]}} : '0}),
+        .payload_o({m_unit_id, m_raw})
+    );
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_unit_id <= s_unit_id;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_raw <= s_index < 10 ? {8{cfg_clear_pattern[s_index]}} : '0;
-                end
-            end
-        end
-    end
 endmodule : uddc_clear_recon

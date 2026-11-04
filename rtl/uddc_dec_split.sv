@@ -81,6 +81,8 @@ module uddc_dec_split
     logic clear_request_accepted;
     logic bypass_ctx;
     logic load_snapshot;
+    logic snapshot_queue_ready;
+    logic snapshot_enqueued;
     logic snapshot_pkg_id;
     logic [1023:0] snapshot_data;
     logic [7:0] snapshot_bytes;
@@ -113,8 +115,12 @@ module uddc_dec_split
         next_dispatch_state = dispatch_state;
         case (dispatch_state)
             DISPATCH_CTX: begin
-                if (context_accepted && ctx_cbmd != 0)
-                    next_dispatch_state = ctx_cbmd >= 6 ? DISPATCH_CLEAR : DISPATCH_PKG0;
+                if (context_accepted && ctx_cbmd != 0) begin
+                    if (ctx_cbmd >= 6) next_dispatch_state = DISPATCH_CLEAR;
+                    else if (pkg_streaming && snapshot_enqueued && snapshot_complete)
+                        next_dispatch_state = DISPATCH_PKG1;
+                    else next_dispatch_state = DISPATCH_PKG0;
+                end
             end
             DISPATCH_PKG0: begin
                 if (package_dispatch_finished)
@@ -152,10 +158,12 @@ module uddc_dec_split
     assign ctx_raw = ctx_cbmd == 0 ? data_mem[dispatch_slot] : '0;
     assign context_accepted = ctx_valid && ctx_ready;
     assign package_request_accepted = pkg_valid && pkg_ready;
-    // Streaming dispatch closes on the final request, without waiting for
-    // responses. Non-streaming mode samples completion on a valid response.
+    // Streaming production closes when the final snapshot enters the local
+    // queue. The parser may consume that immutable snapshot later.
+    // Non-streaming dispatch still waits for the corresponding response.
+    assign snapshot_enqueued = load_snapshot && snapshot_queue_ready;
     assign package_dispatch_finished = pkg_streaming ?
-        package_request_accepted && pkg_final : pkg_response_valid && pkg_done;
+        snapshot_enqueued && snapshot_complete : pkg_response_valid && pkg_done;
     always_comb begin
         clear_valid = dispatch_state == DISPATCH_CLEAR;
     end
@@ -164,23 +172,23 @@ module uddc_dec_split
     assign clear_request_accepted = clear_valid && clear_ready;
 
     always_comb begin
-        load_snapshot = 0;
-        if (!pkg_valid || pkg_ready) begin
+        load_snapshot = 1'b0;
+        if (snapshot_queue_ready) begin
             if (context_accepted && ctx_cbmd >= 1 && ctx_cbmd <= 5) begin
-                load_snapshot = 1;
-            end else if (pkg_streaming || (!parse_waiting && !pkg_valid) || pkg_response_valid) begin
+                load_snapshot = 1'b1;
+            end else if (pkg_streaming) begin
+                if (dispatch_state == DISPATCH_PKG0)
+                    load_snapshot = snapshot_bytes > offered_bytes;
+                else if (dispatch_state == DISPATCH_PKG1)
+                    load_snapshot = snapshot_complete;
+            end else if ((!pkg_valid || pkg_ready) &&
+                         ((!parse_waiting && !pkg_valid) || pkg_response_valid)) begin
+                // Response-driven mode must not queue speculative requests.
                 if (dispatch_state == DISPATCH_PKG0) begin
-                    if (package_dispatch_finished) begin
-                        load_snapshot = snapshot_complete;
-                    end else begin
-                        load_snapshot = snapshot_bytes > offered_bytes;
-                    end
-                end else begin
-                    if (dispatch_state == DISPATCH_PKG1 && !package_dispatch_finished) begin
-                        load_snapshot = snapshot_complete &&
-                                (!pkg_valid || !pkg_pkg_id);
-                    end
-                end
+                    if (package_dispatch_finished) load_snapshot = snapshot_complete;
+                    else load_snapshot = snapshot_bytes > offered_bytes;
+                end else if (dispatch_state == DISPATCH_PKG1 && !package_dispatch_finished)
+                    load_snapshot = snapshot_complete && (!pkg_valid || !pkg_pkg_id);
             end
         end
     end
@@ -223,7 +231,19 @@ module uddc_dec_split
 
     always_comb begin
         snapshot_pkg_id = dispatch_state == DISPATCH_PKG1 ||
-                          (dispatch_state == DISPATCH_PKG0 && package_dispatch_finished);
+                          (!pkg_streaming && dispatch_state == DISPATCH_PKG0 && package_dispatch_finished);
+    end
+
+    for (genvar slot_index = 0; slot_index < UNIT_SLOTS; slot_index++) begin : input_completion
+        always_ff @(posedge clk or negedge rst_n) begin
+            if (!rst_n) complete[slot_index] <= 1'b0;
+            else if ((context_accepted && ctx_cbmd == 0 && dispatch_slot == slot_index) ||
+                     (package_dispatch_finished && dispatch_state == DISPATCH_PKG1 && dispatch_slot == slot_index) ||
+                     (clear_request_accepted && dispatch_slot == slot_index))
+                complete[slot_index] <= 1'b0;
+            else if (input_accepted && s_last && wr_slot == slot_index)
+                complete[slot_index] <= 1'b1;
+        end
     end
 
     // Output uses its own cache, so a retiring input slot can accept a new
@@ -275,32 +295,6 @@ module uddc_dec_split
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            complete <= '0;
-        end else begin
-            if (input_accepted) begin
-                if (s_last) begin
-                    complete[wr_slot] <= 1;
-                end
-            end
-            if (context_accepted) begin
-                if (ctx_cbmd == 0) begin
-                    complete[dispatch_slot] <= 0;
-                end
-            end
-            if (package_dispatch_finished) begin
-                if (dispatch_state == DISPATCH_PKG0) begin
-                end else begin
-                    complete[dispatch_slot] <= 0;
-                end
-            end
-            if (clear_request_accepted) begin
-                complete[dispatch_slot] <= 0;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
         end else begin
             if (input_accepted) begin
                 if (!collecting) begin
@@ -315,105 +309,17 @@ module uddc_dec_split
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dispatch_slot <= 0;
-        end else begin
-            if (context_accepted) begin
-                if (ctx_cbmd == 0) begin
-                    dispatch_slot <= advance(dispatch_slot);
-                end
-            end
-            if (package_dispatch_finished) begin
-                if (dispatch_state == DISPATCH_PKG0) begin
-                end else begin
-                    dispatch_slot <= advance(dispatch_slot);
-                end
-            end
-            if (clear_request_accepted) begin
-                dispatch_slot <= advance(dispatch_slot);
-            end
-        end
+        if (!rst_n) dispatch_slot <= 0;
+        else if ((context_accepted && ctx_cbmd == 0) ||
+                 (package_dispatch_finished && dispatch_state == DISPATCH_PKG1) ||
+                 clear_request_accepted)
+            dispatch_slot <= advance(dispatch_slot);
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            offered_bytes <= 0;
-        end else begin
-            if (context_accepted) begin
-                offered_bytes <= 0;
-            end
-            if (load_snapshot) begin
-                offered_bytes <= snapshot_bytes;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end else begin
-            if (load_snapshot) begin
-                pkg_available_bytes <= snapshot_bytes[6:0];
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end else begin
-            if (load_snapshot) begin
-                pkg_cbmd <= snapshot_cbmd;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end else begin
-            if (load_snapshot) begin
-                pkg_final <= snapshot_complete;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end else begin
-            if (load_snapshot) begin
-                pkg_pkg_id <= snapshot_pkg_id;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end else begin
-            if (load_snapshot) begin
-                pkg_region <= snapshot_data[767:0];
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end else begin
-            if (load_snapshot) begin
-                pkg_unit_id <= UNIT_ID_W'(dispatch_slot);
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            pkg_valid <= 0;
-        end else begin
-            if (load_snapshot) begin
-                pkg_valid <= 1;
-            end else begin
-                if (package_request_accepted) begin
-                    pkg_valid <= 0;
-                end
-            end
-        end
+        if (!rst_n) offered_bytes <= '0;
+        else if (snapshot_enqueued) offered_bytes <= snapshot_bytes;
+        else if (context_accepted) offered_bytes <= '0;
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -451,4 +357,12 @@ module uddc_dec_split
             end
         end
     end
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(UNIT_ID_W+1+4+768+7+1)) u_snapshot_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(load_snapshot), .ready_o(snapshot_queue_ready),
+        .ready_i(pkg_ready), .valid_o(pkg_valid),
+        .payload_i({UNIT_ID_W'(dispatch_slot), snapshot_pkg_id, snapshot_cbmd, snapshot_data[767:0], snapshot_bytes[6:0], snapshot_complete}),
+        .payload_o({pkg_unit_id, pkg_pkg_id, pkg_cbmd, pkg_region, pkg_available_bytes, pkg_final})
+    );
 endmodule : uddc_dec_split

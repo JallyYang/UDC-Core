@@ -26,6 +26,7 @@ module uddc_correlation
         output logic m_error
     );
 
+    localparam int OUTPUT_WIDTH = UNIT_ID_W+1+4+1+7+1+512;
     function automatic int channels(input logic [3:0] f);
         case (f)
             1, 2, 3: begin
@@ -214,103 +215,16 @@ module uddc_correlation
     // register: the intervening transpose is routing, not another sum stage.
     generate
         if (REGISTER_OUTPUT) begin : registered_output
-            assign s_ready = !m_valid || m_ready;
+            // Payload order (MSB to LSB) follows the named port concatenations.
+            de_rs_reg #(.NORST(1), .PLD_W(OUTPUT_WIDTH)) u_output_slice (
+                .aclk_i(clk), .aresetn_i(rst_n),
+                .valid_i(s_valid), .ready_o(s_ready),
+                .ready_i(m_ready), .valid_o(m_valid),
+                .payload_i({s_unit_id, s_pkg_id, s_error ? '0 : s_fmt, s_error ? 1'b0 : s_decor, s_size_bytes, s_error, s_error ? '0 :
+                                            (s_decor ? color_transform(s_planes, s_fmt, 1'b1) : s_planes)}),
+                .payload_o({m_unit_id, m_pkg_id, m_fmt, m_decor, m_size_bytes, m_error, m_planes})
+            );
 
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                    m_valid <= 1'b0;
-                end
-                else begin
-                    if (s_ready) begin
-                        m_valid <= s_valid;
-                    end
-                end
-            end
-
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                end
-                else begin
-                    if (s_ready) begin
-                        if (s_valid) begin
-                            m_unit_id <= s_unit_id;
-                        end
-                    end
-                end
-            end
-
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                end
-                else begin
-                    if (s_ready) begin
-                        if (s_valid) begin
-                            m_pkg_id <= s_pkg_id;
-                        end
-                    end
-                end
-            end
-
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                end
-                else begin
-                    if (s_ready) begin
-                        if (s_valid) begin
-                            m_fmt <= s_error ? '0 : s_fmt;
-                        end
-                    end
-                end
-            end
-
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                end
-                else begin
-                    if (s_ready) begin
-                        if (s_valid) begin
-                            m_decor <= s_error ? 1'b0 : s_decor;
-                        end
-                    end
-                end
-            end
-
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                end
-                else begin
-                    if (s_ready) begin
-                        if (s_valid) begin
-                            m_size_bytes <= s_size_bytes;
-                        end
-                    end
-                end
-            end
-
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                end
-                else begin
-                    if (s_ready) begin
-                        if (s_valid) begin
-                            m_error <= s_error;
-                        end
-                    end
-                end
-            end
-
-            always_ff @(posedge clk or negedge rst_n) begin
-                if (!rst_n) begin
-                end
-                else begin
-                    if (s_ready) begin
-                        if (s_valid) begin
-                            m_planes <= s_error ? '0 :
-                                (s_decor ? color_transform(s_planes, s_fmt, 1'b1) : s_planes);
-                        end
-                    end
-                end
-            end
         end else begin : direct_output
             assign s_ready = m_ready;
             assign m_valid = s_valid;

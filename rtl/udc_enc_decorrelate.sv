@@ -242,34 +242,31 @@ module udc_enc_decorrelate
         end
         return r;
     endfunction
+    logic candidate_ready;
+    logic [UNIT_ID_W-1:0] saved_unit_id;
+    logic saved_package_id;
+    logic [3:0] saved_format_id;
+    always_ff @(posedge clk) begin
+        if (rst_n && s_valid && s_ready) saved_unit_id <= s_unit_id;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_valid && s_ready) saved_package_id <= s_pkg_id;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_valid && s_ready) saved_format_id <= s_fmt;
+    end
     logic pending_decor;
     logic [511:0] decorated;
     logic [511:0] unpacked;
     assign unpacked = transpose_planes(s_raw, s_fmt, 1'b0);
-    assign s_ready = (!m_valid || m_ready) && !pending_decor;
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 0;
-        end
-        else begin
-            if (!m_valid || m_ready) begin
-                if (pending_decor) begin
-                    m_valid <= 1;
-                end
-                else begin
-                    m_valid <= s_valid;
-                end
-            end
-        end
-    end
+    assign s_ready = candidate_ready && !pending_decor;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             pending_decor <= 0;
         end
         else begin
-            if (!m_valid || m_ready) begin
+            if (candidate_ready) begin
                 if (pending_decor) begin
                     pending_decor <= 0;
                 end
@@ -286,89 +283,7 @@ module udc_enc_decorrelate
         if (!rst_n) begin
         end
         else begin
-            if (!m_valid || m_ready) begin
-                if (pending_decor) begin
-                    m_decor <= 1;
-                end
-                else begin
-                    if (s_valid) begin
-                        m_decor <= 0;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (!m_valid || m_ready) begin
-                if (pending_decor) begin
-                    m_planes <= decorated;
-                end
-                else begin
-                    if (s_valid) begin
-                        m_planes <= unpacked;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (!m_valid || m_ready) begin
-                if (pending_decor) begin
-                end
-                else begin
-                    if (s_valid) begin
-                        m_unit_id <= s_unit_id;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (!m_valid || m_ready) begin
-                if (pending_decor) begin
-                end
-                else begin
-                    if (s_valid) begin
-                        m_pkg_id <= s_pkg_id;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (!m_valid || m_ready) begin
-                if (pending_decor) begin
-                end
-                else begin
-                    if (s_valid) begin
-                        m_fmt <= s_fmt;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (!m_valid || m_ready) begin
+            if (candidate_ready) begin
                 if (pending_decor) begin
                 end
                 else begin
@@ -379,4 +294,12 @@ module udc_enc_decorrelate
             end
         end
     end
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(UNIT_ID_W+1+4+1+512)) u_candidate_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(pending_decor || s_valid), .ready_o(candidate_ready),
+        .ready_i(m_ready), .valid_o(m_valid),
+        .payload_i({pending_decor ? saved_unit_id : s_unit_id, pending_decor ? saved_package_id : s_pkg_id, pending_decor ? saved_format_id : s_fmt, pending_decor, pending_decor ? decorated : unpacked}),
+        .payload_o({m_unit_id, m_pkg_id, m_fmt, m_decor, m_planes})
+    );
 endmodule : udc_enc_decorrelate

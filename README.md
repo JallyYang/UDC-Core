@@ -29,6 +29,9 @@ Clear 命中也等待已启动的两个 DIC 包处理完成。
 pkg0 从首拍 32B 启动，后续快照连续送入并去重；96B 定向案例 T13 首拍输出，
 单扇区为 T11。全关时使用 T8～T10 的旁路配置，具体条件见流水说明。
 
+级间握手打拍统一使用 [de_rs_reg](docs/DE_RS_REG.md)：两项缓冲、最小一拍延迟，
+上游ready仅由本地占用决定。三个可选解析边界和颜色恢复的组合配置仍可旁路。
+
 复位约定：上下游及所有子模块共用 `rst_n`，复位期间不进行有效传输。
 组合逻辑不直接使用复位信号屏蔽 ready/valid；复位期间即使信号为高也不计为握手。
 时序逻辑负责清除状态和有效标志，事务从复位释放后的有效时钟沿开始。
@@ -40,6 +43,8 @@ pkg0 从首拍 32B 启动，后续快照连续送入并去重；96B 定向案例
 python3 tests/check_rtl_style.py
 
 # Python 3 + Verilator + C++20 编译器
+bash tests/run_de_rs_reg.sh
+bash tests/run_udc_legacy.sh
 bash tests/run_uddc.sh
 bash tests/run_udc_stream.sh
 bash tests/run_uddc_parser.sh

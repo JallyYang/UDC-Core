@@ -29,7 +29,7 @@ common=(--cc --exe --build --assert -Wno-fatal -j "$jobs" -CFLAGS -O0
 python3 tests/uddc_generate.py "$build_dir/vectors.txt"
 "${simulator[@]}" "${common[@]}" --top-module uddc_dec_split \
     -GUNIT_SLOTS="$slots" \
-    rtl/uddc_dec_split.sv "$repo_dir/tests/uddc_dispatch.cpp" \
+    rtl/de_rs_reg.v rtl/uddc_dec_split.sv "$repo_dir/tests/uddc_dispatch.cpp" \
     --Mdir "$build_dir/dispatch" > "$build_dir/dispatch-build.log" 2>&1
 "$build_dir/dispatch/Vuddc_dec_split"
 "${simulator[@]}" "${common[@]}" --top-module uddc_package_out \

@@ -6,12 +6,17 @@
   variable. Array elements and slices count as one signal. Loop-control
   variables are not state outputs.
 - Do not use packed/unpacked structures, anonymous structures, or typedef
-  structures anywhere in RTL. Keep pipeline/FIFO fields as named signals or
-  arrays. Function/interface concatenations must have explicit widths and order.
+  structures anywhere in RTL. Keep fields at call sites as named signals or
+  arrays. The shared `de_rs_reg` stores its generic payload as a bus. Function/
+  interface concatenations must have explicit widths and order.
 - Write state machines in three parts: a dedicated current-state register,
   combinational next-state `case`, and separate output logic. Split the output
   part into one process per variable. Preserve the existing combinational or
   registered output timing; adding a register solely for style changes latency.
+- Use `de_rs_reg` for registered valid/ready transport stages: two entries,
+  one-cycle minimum latency, and ready from local occupancy only. Optional bypass
+  stays combinational. Slot/order queues and partial arithmetic state retain
+  their own capacity/controls. See [the module description](../docs/DE_RS_REG.md).
 - Preserve reset behavior, clock enables and the priority of multiple writes
   to one variable when splitting a process.
 - Express competing updates to the same register bit with explicit `if / else if`
@@ -22,6 +27,8 @@
   Do not gate combinational datapaths, next-state logic or ready/valid outputs
   directly with reset. Keep sequential reset/write guards;
   ready/valid levels during reset do not represent accepted transactions.
+  `de_rs_reg` with `NORST=1` follows the restored primitive: payload writes have
+  no reset guard; reset control bits keep all such data invalid.
 - Prefer descriptive event names such as `input_accepted` and
   `package_dispatch_finished` over abbreviations such as `fire`.
 

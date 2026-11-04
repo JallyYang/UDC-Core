@@ -510,24 +510,22 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
     logic [3:0] selected_candidate_fmt;
     logic selected_candidate_package_id;
     logic [UNIT_ID_W-1:0] selected_candidate_unit_id;
-    logic [511:0] candidate_deltas [0:1];
-    logic [3:0][31:0] candidate_anchors [0:1];
-    logic [31:0][4:0] candidate_indexes [0:1];
-    logic [3:0] candidate_strategy [0:1];
-    logic [9:0] candidate_length [0:1];
-    logic candidate_decor [0:1];
-    logic [3:0] candidate_fmt [0:1];
-    logic candidate_package_id [0:1];
-    logic [UNIT_ID_W-1:0] candidate_unit_id [0:1];
-    logic write_position;
-    logic read_position;
-    logic [1:0] queued;
-    logic enqueue;
-    logic dequeue;
+    logic [511:0] candidate_deltas;
+    logic [3:0][31:0] candidate_anchors;
+    logic [31:0][4:0] candidate_indexes;
+    logic [3:0] candidate_strategy;
+    logic [9:0] candidate_length;
+    logic candidate_decor;
+    logic [3:0] candidate_fmt;
+    logic candidate_package_id;
+    logic [UNIT_ID_W-1:0] candidate_unit_id;
+
+    logic candidate_queue_ready;
+    logic candidate_valid;
     logic package_ready;
     logic select_color_candidate;
     // A first half only updates local state; it needs no candidate FIFO entry.
-    assign s_ready = (!s_enable || !input_beat[0] || queued<2);
+    assign s_ready = (!s_enable || !input_beat[0] || candidate_queue_ready);
     assign input_accepted = s_valid && s_ready;
     // Half-analysis result: planes, deltas, anchors, pairs, global_indexes.
     assign {
@@ -577,8 +575,7 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
     assign selected_candidate_fmt = select_color_candidate ? color_candidate_fmt : original_candidate_fmt;
     assign selected_candidate_package_id = select_color_candidate ? color_candidate_package_id : original_candidate_package_id;
     assign selected_candidate_unit_id = select_color_candidate ? color_candidate_unit_id : original_candidate_unit_id;
-    assign enqueue = input_accepted && s_enable && input_beat[0];
-    assign dequeue = queued!=0 && package_ready;
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) input_beat <= 0;
         else if (input_accepted) input_beat <= input_beat+1'b1;
@@ -613,57 +610,23 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
     always_ff @(posedge clk) begin
         if (rst_n && input_accepted && s_enable) color_partial_global_indexes <= color_next_global_indexes;
     end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_deltas[write_position] <= selected_candidate_deltas;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_anchors[write_position] <= selected_candidate_anchors;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_indexes[write_position] <= selected_candidate_indexes;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_strategy[write_position] <= selected_candidate_strategy;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_length[write_position] <= selected_candidate_length;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_decor[write_position] <= selected_candidate_decor;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_fmt[write_position] <= selected_candidate_fmt;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_package_id[write_position] <= selected_candidate_package_id;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidate_unit_id[write_position] <= selected_candidate_unit_id;
-    end
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) write_position <= 0;
-        else if (enqueue) write_position <= !write_position;
-    end
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) read_position <= 0;
-        else if (dequeue) read_position <= !read_position;
-    end
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) queued <= 0;
-        else case ({enqueue,dequeue})
-            2'b10: queued <= queued+1'b1;
-            2'b01: queued <= queued-1'b1;
-            default: queued <= queued;
-        endcase
-    end
+
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(CANDIDATE_BITS)) u_candidate_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(s_valid && s_enable && input_beat[0]), .ready_o(candidate_queue_ready),
+        .ready_i(package_ready), .valid_o(candidate_valid),
+        .payload_i({selected_candidate_deltas, selected_candidate_anchors, selected_candidate_indexes, selected_candidate_strategy, selected_candidate_length, selected_candidate_decor, selected_candidate_fmt, selected_candidate_package_id, selected_candidate_unit_id}),
+        .payload_o({candidate_deltas, candidate_anchors, candidate_indexes, candidate_strategy, candidate_length, candidate_decor, candidate_fmt, candidate_package_id, candidate_unit_id})
+    );
     udc_enc_package #(.UNIT_ID_W(UNIT_ID_W)) u_package (
         .clk(clk), .rst_n(rst_n),
-        .s_valid(queued!=0), .s_ready(package_ready),
-        .s_unit_id(candidate_unit_id[read_position]), .s_pkg_id(candidate_package_id[read_position]),
-        .s_fmt(candidate_fmt[read_position]), .s_decor(candidate_decor[read_position]),
-        .s_anchors(candidate_anchors[read_position]), .s_deltas(candidate_deltas[read_position]),
-        .s_strategy(candidate_strategy[read_position]), .s_indexes(candidate_indexes[read_position]),
-        .s_logical_bits(candidate_length[read_position]),
+        .s_valid(candidate_valid), .s_ready(package_ready),
+        .s_unit_id(candidate_unit_id), .s_pkg_id(candidate_package_id),
+        .s_fmt(candidate_fmt), .s_decor(candidate_decor),
+        .s_anchors(candidate_anchors), .s_deltas(candidate_deltas),
+        .s_strategy(candidate_strategy), .s_indexes(candidate_indexes),
+        .s_logical_bits(candidate_length),
         .m_valid(m_valid), .m_ready(m_ready), .m_unit_id(m_unit_id), .m_pkg_id(m_pkg_id),
         .m_fmt(m_fmt), .m_size_bytes(m_size_bytes), .m_bits(m_bits), .m_error(m_error)
     );

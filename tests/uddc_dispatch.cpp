@@ -90,11 +90,14 @@ int main(int argc, char** argv) {
             if(holding){held_bytes=d.pkg_available_bytes;held_package=d.pkg_pkg_id;held_final=d.pkg_final;for(int j=0;j<24;j++)held[j]=d.pkg_region[j];}
             if(d.ctx_valid&&d.ctx_ready)contexts++;
             if(d.pkg_valid&&d.pkg_ready){
-                if(!stalled){
-                    int expected_package=requests==sectors;
-                    int expected_bytes=expected_package?sectors*32:(requests+1)*32;
-                    if(d.pkg_pkg_id!=expected_package || d.pkg_available_bytes!=expected_bytes || cycle!=requests+1)return 1;
-                    if(d.pkg_final!=(expected_bytes==sectors*32))return 1;
+                int expected_package=requests==sectors;
+                int expected_bytes=expected_package?sectors*32:(requests+1)*32;
+                if(d.pkg_pkg_id!=expected_package || d.pkg_available_bytes!=expected_bytes)return 1;
+                if(!stalled && cycle!=requests+1)return 1;
+                if(d.pkg_final!=(expected_bytes==sectors*32))return 1;
+                for(int j=0;j<24;j++) {
+                    uint32_t expected=j<expected_bytes/4 ? 0x100*(j/8)+j%8 : 0;
+                    if(d.pkg_region[j]!=expected)return 1;
                 }
                 requests++;
                 if(d.pkg_pkg_id)break;
@@ -103,7 +106,7 @@ int main(int argc, char** argv) {
             d.clk=1;d.eval();
         }
         if(tx!=sectors || contexts!=1 || !d.pkg_pkg_id)return 1;
-        if(!stalled && requests!=sectors+1)return 1;
+        if(requests!=sectors+1)return 1;
     }
     // Fill the allocation ring, then replace every retiring slot on its edge.
     {

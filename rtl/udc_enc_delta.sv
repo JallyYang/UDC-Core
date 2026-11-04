@@ -22,6 +22,7 @@ module udc_enc_delta
         output logic [511:0] m_deltas
     );
 
+    localparam int OUTPUT_WIDTH = UNIT_ID_W+1+4+1+128+512;
     function automatic int channels(input logic [3:0] f);
         case (f)
             1, 2, 3: begin
@@ -226,88 +227,13 @@ module udc_enc_delta
     endfunction
     // Function result order: deltas[511:0], anchors[127:0].
     assign {next_delta,next_anchor} = compute_difference(s_fmt,s_planes);
-    assign s_ready = !m_valid || m_ready;
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(OUTPUT_WIDTH)) u_output_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(s_valid), .ready_o(s_ready),
+        .ready_i(m_ready), .valid_o(m_valid),
+        .payload_i({s_unit_id, s_pkg_id, s_fmt, s_decor, next_anchor, next_delta}),
+        .payload_o({m_unit_id, m_pkg_id, m_fmt, m_decor, m_anchors, m_deltas})
+    );
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 1'b0;
-        end
-        else begin
-            if (s_ready) begin
-                m_valid <= s_valid;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_unit_id <= s_unit_id;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_pkg_id <= s_pkg_id;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_fmt <= s_fmt;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_decor <= s_decor;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_anchors <= next_anchor;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_deltas <= next_delta;
-                end
-            end
-        end
-    end
 endmodule : udc_enc_delta

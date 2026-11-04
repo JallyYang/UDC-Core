@@ -1,3 +1,4 @@
+rtl/de_rs_reg.v
 rtl/udc_enc_stream.sv
 rtl/udc_enc_core.sv
 rtl/udc_enc_split.sv

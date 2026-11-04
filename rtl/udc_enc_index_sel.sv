@@ -26,6 +26,7 @@ module udc_enc_index_sel
         output logic [9:0] m_logical_bits
     );
 
+    localparam int OUTPUT_WIDTH = UNIT_ID_W+1+4+1+128+512+4+160+10;
     function automatic int channels(input logic [3:0] f);
         case (f)
             1, 2, 3: begin
@@ -317,124 +318,13 @@ module udc_enc_index_sel
     endfunction
     // Function result order: strategy[3:0], indexes[159:0], length[9:0].
     assign {next_strategy,next_indexes,next_length} = compute_index_selection(s_deltas,s_fmt);
-    assign s_ready = !m_valid || m_ready;
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(OUTPUT_WIDTH)) u_output_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(s_valid), .ready_o(s_ready),
+        .ready_i(m_ready), .valid_o(m_valid),
+        .payload_i({s_unit_id, s_pkg_id, s_fmt, s_decor, s_anchors, s_deltas, next_strategy, next_indexes, next_length}),
+        .payload_o({m_unit_id, m_pkg_id, m_fmt, m_decor, m_anchors, m_deltas, m_strategy, m_indexes, m_logical_bits})
+    );
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 1'b0;
-        end
-        else begin
-            if (s_ready) begin
-                m_valid <= s_valid;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_unit_id <= s_unit_id;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_pkg_id <= s_pkg_id;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_fmt <= s_fmt;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_decor <= s_decor;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_anchors <= s_anchors;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_deltas <= s_deltas;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_strategy <= next_strategy;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_indexes <= next_indexes;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    m_logical_bits <= next_length;
-                end
-            end
-        end
-    end
 endmodule : udc_enc_index_sel

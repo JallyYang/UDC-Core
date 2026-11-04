@@ -43,6 +43,7 @@ module udc_enc_split
         input logic retire_valid,
         input logic [UNIT_ID_W - 1:0] retire_unit_id
     );
+    logic request_input_ready;
     logic [UNIT_SLOTS - 1:0] allocated;
     logic [UNIT_SLOTS - 1:0] complete;
     logic [UNIT_SLOTS - 1:0] clear_done;
@@ -105,7 +106,7 @@ module udc_enc_split
 
     // FSM part 3: combinational outputs, one target per process.
     assign s_ready = (collecting || !allocated[wr_slot]) &&
-        (!clear_req_valid || clear_req_ready);
+        request_input_ready;
     assign clear_req_fmt = fmt_mem[clear_req_unit_id];
     assign clear_req_enable = limit_mem[clear_req_unit_id] != 0;
     assign clear_rsp_ready = 1'b1;
@@ -272,64 +273,10 @@ module udc_enc_split
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            clear_req_valid <= 0;
-        end
-        else begin
-            if (clear_req_valid && clear_req_ready) begin
-                clear_req_valid <= 0;
-            end
-            if (s_valid && s_ready) begin
-                clear_req_valid <= 1;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
         end
         else begin
             if (s_valid && s_ready) begin
                 raw_mem[wr_slot][int'(beat) * int'(STREAM_DATA_BITS) +: STREAM_DATA_BITS] <= s_data;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                clear_req_unit_id <= UNIT_ID_W'($unsigned(wr_slot));
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                clear_req_sop <= s_sop;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                clear_req_last <= s_last;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                clear_req_data <= s_data;
             end
         end
     end
@@ -367,4 +314,12 @@ module udc_enc_split
             end
         end
     end
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(UNIT_ID_W+1+1+STREAM_DATA_BITS)) u_request_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(s_valid && (collecting || !allocated[wr_slot])), .ready_o(request_input_ready),
+        .ready_i(clear_req_ready), .valid_o(clear_req_valid),
+        .payload_i({UNIT_ID_W'($unsigned(wr_slot)), s_sop, s_last, s_data}),
+        .payload_o({clear_req_unit_id, clear_req_sop, clear_req_last, clear_req_data})
+    );
 endmodule : udc_enc_split

@@ -5,7 +5,8 @@ future edits. Read [rtl/STYLE.md](rtl/STYLE.md) before changing RTL.
 
 - Do not use SystemVerilog structures: no packed or unpacked `struct`, anonymous
   structures, or `typedef struct`. Use explicitly named scalar/vector signals
-  and arrays. Persistent pipeline/FIFO fields must remain separately named.
+  and arrays. Pipeline/FIFO fields at call sites must remain separately named;
+  the generic `de_rs_reg` primitive stores its concatenated payload as a bus.
   Plain concatenations may carry fields across interfaces or function returns;
   document their field order and keep their widths explicit. The ban also
   covers inactive preprocessing branches and unused macro definitions.
@@ -17,6 +18,10 @@ future edits. Read [rtl/STYLE.md](rtl/STYLE.md) before changing RTL.
   sequential logic, not in combinational ready/valid or datapath logic.
 - Do not add file-header comments, default_nettype directives, or
   translate_off/translate_on blocks to RTL.
+- Use `rtl/de_rs_reg.v` for registered valid/ready transport boundaries. It has
+  two entries and breaks the combinational ready chain. Keep arithmetic partial
+  state, slot caches and unit-order FIFOs separate. Preserve combinational bypass
+  options and update enqueue/response control when changing buffering capacity.
 - Independently switchable pipeline boundaries must support registered and
   combinational modes with matching data, valid, ready, tags and error state.
 - Update architecture, macro/port descriptions, cycle tables, tests and comments

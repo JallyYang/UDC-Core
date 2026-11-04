@@ -309,57 +309,20 @@ module uddc_delta_cal
             assign next_error = stage_error[stage_index-1];
             assign next_size_bytes = stage_size_bytes[stage_index-1];
         end
+        logic output_ready;
         if (stage_index == LAST_STAGE) begin : last_ready
-            assign stage_ready[stage_index] = !stage_valid[stage_index] || m_ready;
+            assign output_ready = m_ready;
         end else begin : following_ready
-            assign stage_ready[stage_index] = !stage_valid[stage_index] || stage_ready[stage_index+1];
+            assign output_ready = stage_ready[stage_index+1];
         end
-        always_ff @(posedge clk or negedge rst_n) begin
-            if (!rst_n) begin
-                stage_valid[stage_index] <= 0;
-            end else if (stage_ready[stage_index]) begin
-                stage_valid[stage_index] <= input_valid;
-            end
-        end
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_sums[stage_index] <= next_sums;
-        end
-
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_anchors[stage_index] <= next_anchors;
-        end
-
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_format_id[stage_index] <= next_format_id;
-        end
-
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_unit_id[stage_index] <= next_unit_id;
-        end
-
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_package_id[stage_index] <= next_package_id;
-        end
-
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_decor[stage_index] <= next_decor;
-        end
-
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_error[stage_index] <= next_error;
-        end
-
-        always_ff @(posedge clk) begin
-            if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_size_bytes[stage_index] <= next_size_bytes;
-        end
+        // Payload order (MSB to LSB) follows the named port concatenations.
+        de_rs_reg #(.NORST(1), .PLD_W(512+128+4+UNIT_ID_W+1+1+1+7)) u_slice (
+            .aclk_i(clk), .aresetn_i(rst_n),
+            .valid_i(input_valid), .ready_o(stage_ready[stage_index]),
+            .ready_i(output_ready), .valid_o(stage_valid[stage_index]),
+            .payload_i({next_sums, next_anchors, next_format_id, next_unit_id, next_package_id, next_decor, next_error, next_size_bytes}),
+            .payload_o({stage_sums[stage_index], stage_anchors[stage_index], stage_format_id[stage_index], stage_unit_id[stage_index], stage_package_id[stage_index], stage_decor[stage_index], stage_error[stage_index], stage_size_bytes[stage_index]})
+        );
 
     end
 endmodule : uddc_delta_cal

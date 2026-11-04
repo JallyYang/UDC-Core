@@ -24,6 +24,7 @@ module udc_clear_check
     logic [3:0] index_now;
     // Pure combinational calculation; one result, no module-state side effects.
 
+    localparam int OUTPUT_WIDTH = UNIT_ID_W+1+4;
     function automatic logic [9:0] compute_match_now(
         input logic [9:0][127:0] arg_cfg_clear_pattern,
         input logic [9:0] arg_match_q,
@@ -103,23 +104,14 @@ module udc_clear_check
         return value_index_now;
     endfunction
     assign index_now = compute_index_now(cfg_clear_pattern, match_q, s_data, s_sop);
-    assign s_ready = !m_valid || m_ready;
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 0;
-        end
-        else begin
-            if (m_valid && m_ready) begin
-                m_valid <= 0;
-            end
-            if (s_valid && s_ready) begin
-                if (s_last) begin
-                    m_valid <= 1;
-                end
-            end
-        end
-    end
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(OUTPUT_WIDTH)) u_output_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(s_valid && s_last), .ready_o(s_ready),
+        .ready_i(m_ready), .valid_o(m_valid),
+        .payload_i({s_unit_id, | combined, index_now}),
+        .payload_o({m_unit_id, m_hit, m_index})
+    );
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -132,39 +124,4 @@ module udc_clear_check
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (s_last) begin
-                    m_unit_id <= s_unit_id;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (s_last) begin
-                    m_hit <= | combined;
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_valid && s_ready) begin
-                if (s_last) begin
-                    m_index <= index_now;
-                end
-            end
-        end
-    end
 endmodule : udc_clear_check

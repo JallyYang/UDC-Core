@@ -40,25 +40,17 @@ module udc_enc_candidate_sel
     logic waiting;
     logic [UNIT_ID_W - 1:0] saved_id;
     logic saved_pkg;
-    assign s_ready = !m_valid || m_ready;
+    logic select_saved;
+    assign select_saved = can_decor(s_fmt) && s_decor && s_logical_bits >= saved_length;
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(UNIT_ID_W+1+4+1+128+512+4+160+10)) u_output_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(s_valid && (!can_decor(s_fmt) || s_decor)), .ready_o(s_ready),
+        .ready_i(m_ready), .valid_o(m_valid),
+        .payload_i({s_unit_id, s_pkg_id, s_fmt, select_saved ? 1'b0 : s_decor, select_saved ? saved_anchors : s_anchors, select_saved ? saved_deltas : s_deltas, select_saved ? saved_strategy : s_strategy, select_saved ? saved_indexes : s_indexes, select_saved ? saved_length : s_logical_bits}),
+        .payload_o({m_unit_id, m_pkg_id, m_fmt, m_decor, m_anchors, m_deltas, m_strategy, m_indexes, m_logical_bits})
+    );
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 0;
-        end
-        else begin
-            if (s_ready) begin
-                m_valid <= 0;
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        m_valid <= 1;
-                    end
-                end
-            end
-        end
-    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -176,177 +168,4 @@ module udc_enc_candidate_sel
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        m_unit_id <= s_unit_id;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        m_pkg_id <= s_pkg_id;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        m_fmt <= s_fmt;
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        if (can_decor(s_fmt) && s_decor && s_logical_bits >= saved_length) begin
-                            m_decor <= 0;
-                        end
-                        else begin
-                            m_decor <= s_decor;
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        if (can_decor(s_fmt) && s_decor && s_logical_bits >= saved_length) begin
-                            m_anchors <= saved_anchors;
-                        end
-                        else begin
-                            m_anchors <= s_anchors;
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        if (can_decor(s_fmt) && s_decor && s_logical_bits >= saved_length) begin
-                            m_deltas <= saved_deltas;
-                        end
-                        else begin
-                            m_deltas <= s_deltas;
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        if (can_decor(s_fmt) && s_decor && s_logical_bits >= saved_length) begin
-                            m_strategy <= saved_strategy;
-                        end
-                        else begin
-                            m_strategy <= s_strategy;
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        if (can_decor(s_fmt) && s_decor && s_logical_bits >= saved_length) begin
-                            m_indexes <= saved_indexes;
-                        end
-                        else begin
-                            m_indexes <= s_indexes;
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid) begin
-                    if (can_decor(s_fmt) && !s_decor) begin
-                    end
-                    else begin
-                        if (can_decor(s_fmt) && s_decor && s_logical_bits >= saved_length) begin
-                            m_logical_bits <= saved_length;
-                        end
-                        else begin
-                            m_logical_bits <= s_logical_bits;
-                        end
-                    end
-                end
-            end
-        end
-    end
 endmodule : udc_enc_candidate_sel

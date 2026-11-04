@@ -766,7 +766,6 @@ module uddc_channel_split
     assign response_tag = {layout_unit_id,layout_package_id};
     assign response_complete = !parsed_error || layout_final_snapshot;
     assign emit_result = response_complete && !result_sent[response_tag];
-    assign output_ready = !m_valid || m_ready;
     assign layout_ready = !emit_result || output_ready;
     assign s_response_valid = layout_valid && layout_ready;
     assign s_done = response_complete;
@@ -785,32 +784,13 @@ module uddc_channel_split
     end else begin : independent_snapshots
         assign result_sent = '0;
     end
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) m_valid <= 1'b0;
-        else if (output_ready) m_valid <= layout_valid && emit_result;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_unit_id <= layout_unit_id;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_pkg_id <= layout_package_id;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_fmt <= parsed_format_id;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_decor <= parsed_decor;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_anchors <= parsed_anchors;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_deltas <= parsed_deltas;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_size_bytes <= parsed_size_bytes;
-    end
-    always_ff @(posedge clk) begin
-        if (rst_n && s_response_valid && emit_result) m_error <= parsed_error;
-    end
+
+    // Payload order (MSB to LSB) follows the named port concatenations.
+    de_rs_reg #(.NORST(1), .PLD_W(UNIT_ID_W+1+4+1+128+512+7+1)) u_output_slice (
+        .aclk_i(clk), .aresetn_i(rst_n),
+        .valid_i(layout_valid && emit_result), .ready_o(output_ready),
+        .ready_i(m_ready), .valid_o(m_valid),
+        .payload_i({layout_unit_id, layout_package_id, parsed_format_id, parsed_decor, parsed_anchors, parsed_deltas, parsed_size_bytes, parsed_error}),
+        .payload_o({m_unit_id, m_pkg_id, m_fmt, m_decor, m_anchors, m_deltas, m_size_bytes, m_error})
+    );
 endmodule : uddc_channel_split

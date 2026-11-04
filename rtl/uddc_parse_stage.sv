@@ -13,14 +13,14 @@ module uddc_parse_stage #(
 );
     // The bypass branch forwards data, valid and ready without a clock.
     if (REGISTERED) begin : registered_stage
-        assign s_ready = !m_valid || m_ready;
-        always_ff @(posedge clk or negedge rst_n) begin
-            if (!rst_n) m_valid <= 1'b0;
-            else if (s_ready) m_valid <= s_valid;
-        end
-        always_ff @(posedge clk) begin
-            if (rst_n && s_ready && s_valid) m_data <= s_data;
-        end
+        // Payload order (MSB to LSB) follows the named port concatenations.
+        de_rs_reg #(.NORST(1), .PLD_W(DATA_WIDTH)) u_slice (
+            .aclk_i(clk), .aresetn_i(rst_n),
+            .valid_i(s_valid), .ready_o(s_ready),
+            .ready_i(m_ready), .valid_o(m_valid),
+            .payload_i({s_data}),
+            .payload_o({m_data})
+        );
     end else begin : combinational_stage
         assign s_ready = m_ready;
         assign m_valid = s_valid;

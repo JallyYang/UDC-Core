@@ -5,6 +5,22 @@
 算法字段参考 [DicAlgo.html](../DicAlgo.html)，当前微架构见
 [架构说明](../docs/ARCHITECTURE.md)。RTL 中的仿真断言已删除，以下检查由测试平台完成。
 
+## 公共握手打拍与独立64B编码链
+
+```bash
+bash tests/run_de_rs_reg.sh
+bash tests/run_udc_legacy.sh
+```
+
+`de_rs_reg_test` 用独立两项队列模型跑4万拍，覆盖NORST=0/1、1/32/256/1024bit，
+检查空满边界、满且出队仍拒绝输入、同时读写、顺序、停顿稳定、复位和ready组合隔离。
+`RS_TEST_BUILD_DIR`、`RS_TEST_JOBS` 控制构建目录和并行数。
+
+`udc_legacy_compare` 将保留的独立64B `udc_dic_enc` 与 `eb71130` 比较1024个包，
+覆盖14种格式、原始/颜色候选选择、标签、数据、尺寸、错误及独立输入空拍和输出反压。
+`UDC_LEGACY_BUILD_DIR`、`UDC_TEST_JOBS` 控制构建；生成参考需要保留该提交历史。
+公共模块的端口方向和替换位置见 [de_rs_reg说明](../docs/DE_RS_REG.md)。
+
 ## UDDC 核心
 
 ```bash
@@ -23,7 +39,8 @@ bash tests/run_uddc_parser.sh
 均为0/1，默认1，脚本将它们作为同名编译宏传入。开启一个或两个时仍检查功能并报告
 周期；三个全开和全关的核心回归还检查下表中的延迟及空拍上限。
 三个可选寄存点依次对应包头与索引解码后、偏移前三层后、偏移后三层及位置计算后。
-包头后的独立寄存点已迁移到偏移计算中间；原有结果寄存器始终保留。
+包头后的独立寄存点已迁移到偏移计算中间；固定结果级始终保留。所有开启的边界及结果级使用两项 `de_rs_reg`，
+最小延迟仍一拍，ready仅由本地占用决定。
 原 `UDDC_PARSE_HEADER_REG` 已更名为 `UDDC_PARSE_OFFSET_REG`。
 
 `UDDC_TEST_BUILD_DIR` 可复用构建目录，`UDDC_TEST_JOBS` 控制并行数（默认4）。
@@ -49,7 +66,8 @@ bash tests/run_uddc_parser.sh
 | T4 | pkg1，完整96B区域 |
 
 调度测试在不提供任何响应的情况下也必须完成上述请求，防止重新引入串行等待。
-反压时请求不变，恢复后可跳过过时前缀。全关配置则按有效响应的 done 决定提前切包；
+反压时队首请求不变，第二项可以保存下一快照；队列满后停止入队，
+恢复后可跳过未入队的过时前缀。调度器以最终快照入队推进流式状态，不等队首消费。全关配置则按有效响应的 done 决定提前切包；
 例如96B、pkg0=40B时，它的请求周期为T1/32B、T2/64B、T3/pkg1。
 
 `s_response_valid` 表示一份快照处理结束，`s_done` 仅在该响应有效时解释。
@@ -104,6 +122,8 @@ bash tests/run_udc_stream.sh
 T511接收最后一拍，启用DIC时首拍T9，limit=0时T7。
 
 `UDC_TEST_BUILD_DIR`、`UDC_TEST_JOBS` 控制构建位置和并行数。
+编码核心及独立64B测试在新版Verilator支持时关闭C++合并编译，降低单个编译进程的内存；
+旧版工具自动沿用原有编译方式。内存受限时可设 `UDC_TEST_JOBS=1`。
 这些测试验证兼容性与周期，不替代独立算法规范验证，详见
 [UDC分拍编码](../docs/UDC_STREAMING.md)。
 
@@ -112,7 +132,8 @@ T511接收最后一拍，启用DIC时首拍T9，limit=0时T7。
 两个核心驱动都运行 `core_reset_check.h`：在输入各个前缀之后，分别等待0/3/12拍，
 保持输出反压并施加共用复位，再要求新原始unit正确输出、无旧结果和额外输出。
 共12种编码场景、9种解码场景；解码测试用合法的早期pkg0头部覆盖去重位已置位后的复位。
-复位期间不统计握手，ready/valid无须为0；时序复位和写入保护保留。
+复位期间不统计握手，ready/valid无须为0；控制保持时序复位。
+公共打拍模块NORST=1的数据写入不加复位条件，无效数据由已复位的控制位隔离。
 
 ```bash
 python3 tests/check_rtl_style.py
