@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_correlation
     #(
         parameter int unsigned UNIT_ID_W = 4,
@@ -328,4 +325,3 @@ module uddc_correlation
         end
     endgenerate
 endmodule : uddc_correlation
-`default_nettype wire

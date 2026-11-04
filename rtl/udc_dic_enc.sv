@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module udc_dic_enc
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -169,4 +166,3 @@ module udc_dic_enc
         .m_error(m_error)
     );
 endmodule : udc_dic_enc
-`default_nettype wire

@@ -1,109 +1,120 @@
-# UDDC decode regression
+# RTL 验证说明
 
-Run `bash tests/run_uddc.sh` from a checkout with Python 3, Verilator and a
-C++20 compiler. The Python `verilator` package is supported as an alternative
-to an executable on PATH. Build products stay outside the checkout. Set
-`UDDC_TEST_BUILD_DIR` to reuse a build directory and `UDDC_TEST_JOBS` to limit
-parallel compilation (default 4).
-The regression defaults to four slots; set `UDDC_TEST_SLOTS=8` to check the RTL's
-unchanged default configuration.
+所有构建产物保存在 checkout 外。需要 Python3、Verilator（可用 Python
+`verilator` 包）和 C++20 编译器。风格检查另需 `pyslang==12.1.0`。
+算法字段参考 [DicAlgo.html](../DicAlgo.html)，当前微架构见
+[架构说明](../docs/ARCHITECTURE.md)。RTL 中的仿真断言已删除，以下检查由测试平台完成。
 
-`uddc_dispatch.cpp` verifies the dispatcher's first-beat context bypass,
-consecutive snapshot replacement, same-cycle accepted-input forwarding,
-package switching and request stability under backpressure. Its parser
-completion input is modeled independently using the required byte count.
+## UDDC 核心
 
-With the first input handshake numbered cycle 0, a continuously supplied
-three-sector unit whose pkg0 requires 40B produces requests at:
+```bash
+# 默认三个解析寄存点全开
+bash tests/run_uddc.sh
 
-| Cycle | Request |
+# 三个寄存点全部组合旁路
+UDDC_PARSE_HEADER_REG=0 UDDC_PARSE_INDEX_REG=0 UDDC_PARSE_LAYOUT_REG=0 \
+  bash tests/run_uddc.sh
+
+# 独立解析器八种寄存组合
+bash tests/run_uddc_parser.sh
+```
+
+`UDDC_PARSE_HEADER_REG`、`UDDC_PARSE_INDEX_REG`、`UDDC_PARSE_LAYOUT_REG`
+均为0/1，默认1，脚本将它们作为同名编译宏传入。开启一个或两个时仍检查功能并报告
+周期；三个全开和全关的核心回归还检查下表中的延迟及空拍上限。
+三个可选寄存点对应包头后、索引后、位置计算后；原有结果寄存器始终保留。
+
+`UDDC_TEST_BUILD_DIR` 可复用构建目录，`UDDC_TEST_JOBS` 控制并行数（默认4）。
+核心默认参数为8 slot，回归默认使用4 slot；可设 `UDDC_TEST_SLOTS=8` 验证另一配置。
+`UDDC_PARSER_BUILD_DIR` 指定八组合测试的构建目录。
+
+`uddc_generate.py` 生成908个确定性 unit，覆盖全部14种格式、全部CBMD模式、
+符号差分、颜色恢复、保留位错误及两种包方向的 >64B 包。
+`uddc_latency_vectors.py` 再生成1666个定向 unit，合计2574个、10296拍输出。
+`uddc_decode.cpp` 检查数据、error、SOP/LAST、顺序及反压稳定性。
+参考生成器描述字段布局与预测关系，是回归模型，不是独立规范认证。
+
+## 请求、响应和去重
+
+默认流水模式收到更多字节就提交更长快照，不等待上一响应。
+96B unit 在输入连续且请求无反压时，独立调度测试要求：
+
+| 周期（首拍输入T0） | 请求 |
 | --- | --- |
-| 1 | pkg0, first 32B |
-| 2 | pkg0, first 64B |
-| 3 | pkg1, all 96B |
+| T1 | pkg0，32B快照 |
+| T2 | pkg0，64B快照 |
+| T3 | pkg0，96B最终快照 |
+| T4 | pkg1，完整96B区域 |
 
-The previous dispatcher produced requests on cycles 2, 4 and 6 in the same
-scenario. A pkg0 that completes in the first sector switches earlier; pkg1
-still waits until the occupied region is available because its header is at
-the high end. Input gaps and backpressure can extend this schedule.
+调度测试在不提供任何响应的情况下也必须完成上述请求，防止重新引入串行等待。
+反压时请求不变，恢复后可跳过过时前缀。全关配置则按有效响应的 done 决定提前切包；
+例如96B、pkg0=40B时，它的请求周期为T1/32B、T2/64B、T3/pkg1。
 
-`uddc_generate.py` constructs 908 deterministic units using a software model
-of field allocation, signed deltas, predictor reconstruction, color recovery
-and pixel ordering from `DicAlgo.html`. Cases cover all 14 formats, all CBMD
-modes, invalid reserved header bits, and explicit >64B packages in both roles.
-`uddc_decode.cpp` compares all output words, framing and errors in input order,
-with random source gaps and output backpressure, including stalled-output
-stability. This is an RTL regression, not an independent normative codec.
+`s_response_valid` 表示一份快照处理结束，`s_done` 仅在该响应有效时解释。
+非最终不足前缀响应done=0、无数据输出；成功或最终错误响应done=1。
+流水模式按 `{unit_id,pkg_id}` 抑制重复结果；即使提前成功，也必须提交最终快照清理状态。
+当前没有保存前一份半包字段，每份更长快照独立解析。
 
-The decoder does not impose a 64B package limit: section 2.1.5.3 allows packages
-up to 68B. An incomplete pkg0 prefix is retried with the third sector. The
-parser's internal `s_done` indicates successful parsing or final malformed
-input; the dispatcher uses it only on a valid/ready handshake. Unlike the old
-global `result_sent` state, this handshake needs no final-sector cleanup
-request after an early successful parse.
+`uddc_parser_compare.cpp` 对八种寄存组合分别比较3673份快照，以提交 `66e10f3`
+的解析器为逐快照参考，再用测试端的去重模型确定应输出的结果。
+检查字段、尺寸、tag、最终错误、重复成功抑制、final清理、tag重用、输入空拍及各配置
+独立的随机输出反压。全关配置不启用流式去重，与旧独立快照接口一致。
+参考源码由 `uddc_parser_reference.py` 提取到构建目录，需本地保留该提交历史。
 
-These checks establish cycle scheduling and functional behavior. They do not
-measure Fmax or area. The completion feedback includes parser combinational
-logic; synthesis and static timing analysis are needed to assess that path.
+`uddc_dispatch.cpp` 还检查输入转发、首拍 context 旁路、请求停顿稳定性，以及
+slot 回收与新分配同拍发生时，新分配优先。输入slot复用和输出FIFO入队是两个不同接口；
+当前输出FIFO满时仍不旁路同拍出队。
 
-## Decode latency regression
+## 解码周期与连续性
 
-The decode path now performs distance-1 accumulation in the first delta
-register, followed by distances 2, 4 and 8. It has four delta registers rather
-than an input-copy register plus four accumulation registers. Color recovery
-uses the combinational option of `uddc_correlation`; pixel reconstruction
-captures the recovered, reordered pixels in one register. The default
-standalone correlation module still registers its output.
+以下首拍以第一拍输入握手T0为起点，假定无前序排队、输入连续、输出ready恒1。
 
-`uddc_package_out` includes an accepted head-unit package in its combinational
-view of completion, formats, sizes, errors and data. If that package completes
-the unit, the first output beat need not wait for cache writeback. All checks
-still precede output. The same package is written to storage whether the
-output accepts or stalls, preserving the first beat and its error status.
-
-With no queueing, continuously supplied input and `m_ready=1`, cycle 0 is the
-first input handshake:
-
-| Case | Previous first output | Current first output | Current last output |
+| 工作负载 | 默认全开：首拍/末拍 | 全关：首拍/末拍 | 首拍后空拍 |
 | --- | --- | --- | --- |
-| One-sector DIC | 11 | 8 | 11 |
-| Three-sector DIC, pkg0=64B/pkg1=20B | 12 | 9 | 12 |
-| Three-sector DIC, pkg0>64B | 13 | 10 | 13 |
-| Three-sector DIC, invalid pkg0 header | 13 | 10 | 13 |
+| 单扇区DIC，128 unit | T11/T14 | T8/T11 | 两配置均0 |
+| 96B边界64B/20B，128 unit | T13/T16 | T9/T12 | 两配置均0 |
+| 反向边界20B/64B，128 unit | T13/T16 | T9/T12 | 两配置均0 |
+| 混合DIC，1025 unit | T13/T16（首unit） | T9/T12（首unit） | 两配置均0 |
+| pkg0>64B，128 unit | T13/T16 | T10/T13 | 两配置均0 |
+| 最终坏头，1 unit | T13/T16 | T10/T13 | 两配置均0 |
+| Clear开头后接DIC，128 unit | T4/T7（Clear） | T4/T7（Clear） | 全开6，全关3 |
 
-`uddc_latency_vectors.py` generates explicit 64B boundary packages in both
-roles, >64B compatibility, short packages, malformed headers and mixed modes.
-The continuous-source tests require the first output at the cycle above and
-zero subsequent gaps in the primed workloads. Randomized functional tests
-continue to exercise source gaps, output stalls and data ordering.
+四级差分累加分别计算距离1、2、4、8；解析器位置计算的六层前缀求和是单拍组合逻辑，
+不能计为六拍。核心中颜色恢复为组合模式，像素重排由一个输出寄存器捕获。
+独立 `uddc_correlation` 的默认输出寄存选项仍为1。
 
-`uddc_output_forward.cpp` directly checks both package arrival orders,
-immediate output, forwarding-to-storage stability while stalled, package
-errors, mismatched formats, invalid sizes and final retirement.
+`uddc_output_forward.cpp` 检查两种包到达顺序、最后包同拍转发首拍、停顿后由缓存保持、
+错误包、格式不一致、非法尺寸和最终slot释放。最后一个包不需要先写缓存再等一拍输出。
 
-Starting with Clear still exposes a startup gap before a following DIC unit:
-the directed case now has three gap cycles rather than six. There is no new
-output prefill policy. These latency reductions are in clock cycles; the
-merged color/pixel path and output-forwarding path require static timing
-analysis before claiming a frequency or elapsed-time improvement.
+目前没有统一预填充机制，连续DIC测试通过不表示任意模式切换也无空拍。
+这些结果是周期行为，不是Fmax或面积结论；真实TSMC7、1.5GHz仍需工艺库和STA。
 
-## UDC streaming regression
+## UDC 分拍编码
 
-Run `bash tests/run_udc_stream.sh` for 512 bit-exact encoder comparisons against
-the pinned `b732757` baseline, with independently stalled inputs and outputs,
-all format codes, size limits, Clear and slot reuse. The reference sources are
-extracted into the temporary build directory; the working RTL is not replaced.
-A second driver checks 18 continuous cases of 128 units each and first-output
-latency. Set `UDC_TEST_BUILD_DIR` and `UDC_TEST_JOBS` to control build location
-and parallelism. This test needs the baseline commit in local Git history.
-See [streaming architecture](../docs/UDC_STREAMING.md) for stage boundaries.
+```bash
+bash tests/run_udc_stream.sh
+```
 
-## Shared-reset recovery
+默认测试包装器为4 slot。512个混合 unit 与固定 `b732757` 编码器逐拍比对，
+覆盖格式0～15、尺寸限制、Clear、随机/结构化数据、独立输入间隔和输出反压、slot重用，
+并检查反压稳定性。共比较1385拍输出；旧参考源码写入构建目录。
+另有18组×128 unit，DIC使用全零数据，Clear使用固定模板；检查512拍输入均不反压、
+T511接收最后一拍，启用DIC时首拍T9，limit=0时T7。
 
-Both core drivers run `core_reset_check.h` before their normal regressions.
-All peers share reset and no transfer is counted during reset; ready/valid
-levels are not required to be low. The checks interrupt every input prefix
-of a DIC unit, with 0/3/12 idle cycles before reset and output held stalled,
-then require a fresh raw unit to return with exact data and framing, no stale
-output and no extra output. This covers 12 encoder and 9 decoder reset cases.
-Sequential reset/write guards remain in place.
+`UDC_TEST_BUILD_DIR`、`UDC_TEST_JOBS` 控制构建位置和并行数。
+这些测试验证兼容性与周期，不替代独立算法规范验证，详见
+[UDC分拍编码](../docs/UDC_STREAMING.md)。
+
+## 复位及RTL规范
+
+两个核心驱动都运行 `core_reset_check.h`：在输入各个前缀之后，分别等待0/3/12拍，
+保持输出反压并施加共用复位，再要求新原始unit正确输出、无旧结果和额外输出。
+共12种编码场景、9种解码场景；解码测试用合法的早期pkg0头部覆盖去重位已置位后的复位。
+复位期间不统计握手，ready/valid无须为0；时序复位和写入保护保留。
+
+```bash
+python3 tests/check_rtl_style.py
+```
+
+该脚本检查单变量声明、单目标always、两套三段式FSM，以及全RTL语法和展开。
+实际文件/always数量以脚本输出为准。规范见 [STYLE.md](../rtl/STYLE.md)。

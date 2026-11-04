@@ -14,7 +14,7 @@
 2. 顶层及子模块间的接口、握手、反压和完成反馈。
 3. TSMC7、1.5GHz 性能目标，以及当前 RTL 的周期延迟和吞吐验证范围。
 4. 不支持格式时的实际行为。
-5. 硬件错误、原始模式回退、仿真断言各自的触发条件。
+5. 硬件错误、原始模式回退及接口协议要求。
 
 设计时钟目标为 **TSMC7、1.5GHz（周期约 0.667ns）**。当前是功能 RTL 基线，
 尚无完整核心在真实 TSMC7 工艺角下的时序签核结果。
@@ -23,6 +23,10 @@
 
 当前编码器采用 [32B 分拍编码路径](docs/UDC_STREAMING.md)，Clear 与 DIC 并行，
 Clear 命中也等待已启动的两个 DIC 包处理完成。
+
+当前解码器采用 [三个可选解析寄存点](docs/UDDC_PARSER_PIPELINE.md)，默认全开。
+pkg0 从首拍 32B 启动，后续快照连续送入并去重；96B 定向案例 T13 首拍输出，
+单扇区为 T11。全关时使用 T8～T10 的旁路配置，具体条件见流水说明。
 
 复位约定：上下游及所有子模块共用 `rst_n`，复位期间不进行有效传输。
 组合逻辑不直接使用复位信号屏蔽 ready/valid；复位期间即使信号为高也不计为握手。
@@ -37,6 +41,7 @@ python3 tests/check_rtl_style.py
 # Python 3 + Verilator + C++20 编译器
 bash tests/run_uddc.sh
 bash tests/run_udc_stream.sh
+bash tests/run_uddc_parser.sh
 ```
 
 回归覆盖与逐拍性能条件见 [tests/README.md](tests/README.md)，

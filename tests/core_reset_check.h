@@ -12,7 +12,7 @@ struct ResetStream {
 
 template<class Model, class SetMode, class CheckOutput>
 bool check_reset_recovery(Model &d, ResetStream p, int dirty_beats,
-                          SetMode set_mode, CheckOutput check_output) {
+                          SetMode set_mode, CheckOutput check_output, uint32_t dirty_first_word=0) {
     auto tick = [&] { d.clk=0; d.eval(); d.clk=1; d.eval(); };
     auto reset = [&] {
         // Assert between clock edges. There are no valid transfers in reset.
@@ -35,7 +35,7 @@ bool check_reset_recovery(Model &d, ResetStream p, int dirty_beats,
             for (int cycle=0; cycle<100 && sent<prefix; ++cycle) {
                 d.clk=0; p.input_valid=1;
                 p.input_sop=sent==0; p.input_last=sent==dirty_beats-1;
-                for (int j=0;j<8;++j) p.input_data[j]=0;
+                for (int j=0;j<8;++j) p.input_data[j]=(sent==0 && j==0)?dirty_first_word:0;
                 d.eval(); bool accepted=p.input_ready;
                 d.clk=1; d.eval();
                 if (accepted) ++sent;

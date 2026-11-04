@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_delta_cal
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -357,4 +354,3 @@ module uddc_delta_cal
 
     end
 endmodule : uddc_delta_cal
-`default_nettype wire

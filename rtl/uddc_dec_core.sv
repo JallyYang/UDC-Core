@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_dec_core
     #(
         parameter int unsigned UNIT_ID_W = 4,
@@ -32,6 +29,8 @@ module uddc_dec_core
     logic req_valid;
     logic req_ready;
     logic req_done;
+    logic req_response_valid;
+    logic req_streaming;
     logic [UNIT_ID_W - 1:0] req_unit_id;
     logic req_pkg_id;
     logic [3:0] req_cbmd;
@@ -74,6 +73,8 @@ module uddc_dec_core
         .pkg_valid(req_valid),
         .pkg_ready(req_ready),
         .pkg_done(req_done),
+        .pkg_response_valid(req_response_valid),
+        .pkg_streaming(req_streaming),
         .pkg_unit_id(req_unit_id),
         .pkg_pkg_id(req_pkg_id),
         .pkg_cbmd(req_cbmd),
@@ -106,6 +107,8 @@ module uddc_dec_core
         .s_valid(req_valid),
         .s_ready(req_ready),
         .s_done(req_done),
+        .s_response_valid(req_response_valid),
+        .s_streaming(req_streaming),
         .s_unit_id(req_unit_id),
         .s_pkg_id(req_pkg_id),
         .s_cbmd(req_cbmd),
@@ -151,4 +154,3 @@ module uddc_dec_core
         .retire_unit_id(retire_unit_id)
     );
 endmodule : uddc_dec_core
-`default_nettype wire

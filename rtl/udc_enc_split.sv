@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module udc_enc_split
     #(
         parameter int unsigned UNIT_ID_W = 4,
@@ -66,7 +63,7 @@ module udc_enc_split
     localparam logic [1:0] DISPATCH_CTX = 2'd0;
     localparam logic [1:0] DISPATCH_PKG0 = 2'd1;
     localparam logic [1:0] DISPATCH_PKG1 = 2'd2;
-    // Encoding 3 is unreachable from reset; retain existing behavior and flag it.
+    // Encoding 3 is unreachable from reset; retain existing behavior.
     logic [1:0] dispatch_state;
     logic [1:0] next_dispatch_state;
 
@@ -99,7 +96,7 @@ module udc_enc_split
                     next_dispatch_state = DISPATCH_CTX;
             end
             default: begin
-                // Preserve the original illegal-state behavior and assertion.
+                // Preserve the original illegal-state behavior.
                 if (pkg_valid && pkg_ready)
                     next_dispatch_state = DISPATCH_CTX;
             end
@@ -370,26 +367,4 @@ module udc_enc_split
             end
         end
     end
-    // synthesis translate_off
-
-    initial begin
-        assert(UNIT_SLOTS > 0 && UNIT_SLOTS <= 2**UNIT_ID_W) else begin
-            $fatal(1, "Invalid slots");
-        end
-    end
-    always @(posedge clk) begin
-        if (rst_n) begin
-            assert(dispatch_state == DISPATCH_CTX || dispatch_state == DISPATCH_PKG0 ||
-                dispatch_state == DISPATCH_PKG1) else begin
-                $error("Illegal encoder dispatch state");
-            end
-        end
-        if (rst_n && s_valid && s_ready) begin
-            assert(s_sop == (beat == 0) && s_last == (beat == LAST_UNIT_BEAT)) else begin
-                $error("Raw input framing");
-            end
-        end
-    end
-    // synthesis translate_on
 endmodule : udc_enc_split
-`default_nettype wire

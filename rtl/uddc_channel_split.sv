@@ -1,9 +1,20 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
+`ifndef UDDC_PARSE_HEADER_REG
+`define UDDC_PARSE_HEADER_REG 1
+`endif
+`ifndef UDDC_PARSE_INDEX_REG
+`define UDDC_PARSE_INDEX_REG 1
+`endif
+`ifndef UDDC_PARSE_LAYOUT_REG
+`define UDDC_PARSE_LAYOUT_REG 1
+`endif
 
 module uddc_channel_split
     #(
-        parameter int unsigned UNIT_ID_W = 4
+        parameter int unsigned UNIT_ID_W = 4,
+        parameter bit HEADER_REGISTERED = `UDDC_PARSE_HEADER_REG,
+        parameter bit INDEX_REGISTERED = `UDDC_PARSE_INDEX_REG,
+        parameter bit LAYOUT_REGISTERED = `UDDC_PARSE_LAYOUT_REG,
+        parameter bit MERGE_PREFIXES = 1'b0
     )
     (
         input logic clk,
@@ -11,6 +22,8 @@ module uddc_channel_split
         input logic s_valid,
         output logic s_ready,
         output logic s_done,
+        output logic s_response_valid,
+        output logic s_streaming,
         input logic [UNIT_ID_W - 1:0] s_unit_id,
         input logic s_pkg_id,
         input logic [3:0] s_cbmd,
@@ -247,291 +260,316 @@ module uddc_channel_split
             end
         end
     endfunction
-    logic [3:0] next_fmt;
-    logic next_decor;
-    logic [3:0][31:0] next_anchors;
-    logic [511:0] next_deltas;
-    logic [6:0] next_size;
-    bit next_error;
     typedef struct packed {
-        logic [3:0] fmt;
+        logic [UNIT_ID_W-1:0] unit_id;
+        logic package_id;
+        logic final_snapshot;
+        logic [767:0] region;
+        logic [9:0] region_bits;
+        logic [9:0] available_bits;
+        logic [9:0] cursor;
+        logic [3:0] format_id;
+        logic decor;
+        logic [3:0] strategy;
+        logic error;
+    } header_t;
+    typedef struct packed {
+        header_t header;
+        logic [3:0][62:0][5:0] widths;
+        logic [9:0] cursor;
+        logic error;
+    } indexes_t;
+    typedef struct packed {
+        indexes_t indexes;
+        logic [3:0][9:0] anchor_start;
+        logic [3:0][9:0] delta_start;
+        logic [3:0][62:0][9:0] delta_offset;
+        logic [6:0] size_bytes;
+        logic error;
+    } layout_t;
+    typedef struct packed {
+        logic [3:0] format_id;
         logic decor;
         logic [3:0][31:0] anchors;
         logic [511:0] deltas;
         logic [6:0] size_bytes;
         logic error;
     } parsed_t;
-    parsed_t parsed;
-    // Pure combinational calculation; one result, no module-state side effects.
 
-    function automatic parsed_t decode_snapshot(
-        input logic [3:0] arg_s_cbmd,
-        input logic arg_s_pkg_id,
-        input logic [767:0] arg_s_region,
-        input logic [6:0] arg_available_bytes
-    );
-        logic [3:0] value_next_fmt;
-        logic value_next_decor;
-        logic [3:0][31:0] value_next_anchors;
-        logic [511:0] value_next_deltas;
-        logic [6:0] value_next_size;
-        bit value_next_error;
-        begin : parse
-            int bound;
-            int cursor;
-            int w;
-            int n;
-            int ib;
-            int count;
-            int ix;
-            int offset;
-            int total_dw;
-            int pb;
-            int dw;
-            int used;
-            int low_cursor;
-            int delta_width[0:3][0:62];
-            logic [3:0] strategy;
-            logic [767:0] field_value;
-            logic [31:0] value;
-            bound = occupied_bytes(arg_s_cbmd) * 8;
-            cursor = arg_s_pkg_id ? bound - 1 : 0;
-            value_next_fmt = 0;
-            value_next_decor = 0;
-            value_next_anchors = '0;
-            value_next_deltas = '0;
-            value_next_size = 0;
-            value_next_error = arg_s_cbmd < 1 || arg_s_cbmd > 5;
-            w = 0;
-            n = 0;
-            ib = 0;
-            count = 0;
-            ix = 0;
-            offset = 0;
-            total_dw = 0;
-            pb = 0;
-            dw = 0;
-            used = 0;
-            low_cursor = 0;
-            strategy = 0;
-            field_value = 0;
-            value = 0;
-            for (int c = 0; c < 4; c++)
-            begin
-                for (int k = 0; k < 63; k++) begin
-                    delta_width[c][k] = 0;
-                end
-            end
-            take_field(arg_s_region, (int'(arg_available_bytes) * 8 < bound ? int'(arg_available_bytes) * 8 : bound), arg_s_pkg_id, cursor, 2, field_value, value_next_error);
-            if (field_value[1:0] != 0) begin
-                value_next_error = 1;
-            end
-            take_field(arg_s_region, (int'(arg_available_bytes) * 8 < bound ? int'(arg_available_bytes) * 8 : bound), arg_s_pkg_id, cursor, 4, field_value, value_next_error);
-            value_next_fmt = field_value[3:0];
-            if (channels(value_next_fmt) == 0) begin
-                value_next_error = 1;
-            end
-            take_field(arg_s_region, (int'(arg_available_bytes) * 8 < bound ? int'(arg_available_bytes) * 8 : bound), arg_s_pkg_id, cursor, 1, field_value, value_next_error);
-            value_next_decor = field_value[0] && can_decor(value_next_fmt);
-            for (int c = 0; c < 4; c++) begin
-                if (!value_next_error && c < channels(value_next_fmt)) begin
-                    take_field(arg_s_region, (int'(arg_available_bytes) * 8 < bound ? int'(arg_available_bytes) * 8 : bound), arg_s_pkg_id, cursor, 1, field_value, value_next_error);
-                    strategy[c] = field_value[0];
-                end
-            end
-            for (int c = 0; c < 4; c++) begin
-                if (!value_next_error && c < channels(value_next_fmt)) begin
-                    w = width_of(value_next_fmt, c);
-                    n = samples(value_next_fmt, c);
-                    ib = index_bits(w);
-                    count = strategy[c] ? n / 2 : 1;
-                    take_field(arg_s_region, (int'(arg_available_bytes) * 8 < bound ? int'(arg_available_bytes) * 8 : bound), arg_s_pkg_id, cursor, count * ib, field_value, value_next_error);
-                    for (int k = 0; k < 63; k++) begin
-                        if (k < n - 1 && !value_next_error) begin
-                            offset = (strategy[c] ? k / 2 : 0) * ib;
-                            ix = int'((field_value >> offset) & 768'($unsigned((1 << ib) - 1)));
-                            dw = decode_width(ix, w);
-                            if (dw < 0) begin
-                                value_next_error = 1;
-                            end
-                            else begin
-                                delta_width[c][k] = dw;
-                            end
-                        end
-                    end
-                end
-            end
-            for (int c = 0; c < 4; c++) begin
-                if (!value_next_error && c < channels(value_next_fmt)) begin
-                    w = width_of(value_next_fmt, c);
-                    take_field(arg_s_region, (int'(arg_available_bytes) * 8 < bound ? int'(arg_available_bytes) * 8 : bound), arg_s_pkg_id, cursor, w, field_value, value_next_error);
-                    value_next_anchors[c] = field_value[31:0] & mask_w(w);
-                end
-            end
-            for (int c = 0; c < 4; c++) begin
-                if (!value_next_error && c < channels(value_next_fmt)) begin
-                    w = width_of(value_next_fmt, c);
-                    n = samples(value_next_fmt, c);
-                    pb = plane_base(value_next_fmt, c);
-                    total_dw = 0;
-                    for (int k = 0; k < 63; k++) begin
-                        if (k < n - 1) begin
-                            total_dw += delta_width[c][k];
-                        end
-                    end
-                    take_field(arg_s_region, (int'(arg_available_bytes) * 8 < bound ? int'(arg_available_bytes) * 8 : bound), arg_s_pkg_id, cursor, total_dw, field_value, value_next_error);
-                    offset = 0;
-                    for (int k = 0; k < 63; k++) begin
-                        if (k < n - 1 && !value_next_error) begin
-                            dw = delta_width[c][k];
-                            value = 0;
-                            if (dw > 0) begin
-                                value = 32'(field_value >> offset) & mask_w(dw);
-                                value = $unsigned($signed(value << (32 - dw)) >>> (32 - dw));
-                            end
-                            value_next_deltas = set_sample(value_next_deltas, pb + (k + 1) * w, w, value);
-                            offset += dw;
-                        end
-                    end
-                end
-            end
-            used = arg_s_pkg_id ? bound - 1 - cursor : cursor;
-            value_next_size = 7'($unsigned((used + 7) / 8));
-            low_cursor = arg_s_pkg_id ? bound - int'(value_next_size) * 8 : int'(value_next_size) * 8;
-            if (used <= 0 || used > bound || low_cursor < 0 || low_cursor > bound) begin
-                value_next_error = 1;
-            end
-            if (value_next_error) begin
-                value_next_fmt = 0;
-                value_next_decor = 0;
-                value_next_anchors = 0;
-                value_next_deltas = 0;
-                value_next_size = 0;
+    // Each snapshot is independent: a later prefix reparses its own data.
+    function automatic header_t parse_header();
+        header_t result;
+        logic [767:0] field_value;
+        int cursor;
+        int available;
+        bit bad;
+        result = '0;
+        result.unit_id = s_unit_id;
+        result.package_id = s_pkg_id;
+        result.final_snapshot = s_final;
+        result.region = s_region;
+        result.region_bits = 10'(occupied_bytes(s_cbmd) * 8);
+        available = int'(s_available_bytes) * 8;
+        if (available > int'(result.region_bits)) available = int'(result.region_bits);
+        result.available_bits = 10'(available);
+        cursor = s_pkg_id ? int'(result.region_bits)-1 : 0;
+        bad = s_cbmd < 1 || s_cbmd > 5;
+        take_field(s_region,available,s_pkg_id,cursor,2,field_value,bad);
+        if (field_value[1:0] != 0) bad = 1;
+        take_field(s_region,available,s_pkg_id,cursor,4,field_value,bad);
+        result.format_id = field_value[3:0];
+        if (channels(result.format_id) == 0) bad = 1;
+        take_field(s_region,available,s_pkg_id,cursor,1,field_value,bad);
+        result.decor = field_value[0] && can_decor(result.format_id);
+        for (int channel = 0; channel < 4; channel++) begin
+            if (channel < channels(result.format_id)) begin
+                take_field(s_region,available,s_pkg_id,cursor,1,field_value,bad);
+                result.strategy[channel] = field_value[0];
             end
         end
-        return {value_next_fmt, value_next_decor, value_next_anchors,
-                value_next_deltas, value_next_size, value_next_error};
+        result.cursor = 10'(cursor);
+        result.error = bad;
+        return result;
     endfunction
-    assign parsed = decode_snapshot(s_cbmd, s_pkg_id, s_region, s_available_bytes);
-    assign next_fmt = parsed.fmt;
-    assign next_decor = parsed.decor;
-    assign next_anchors = parsed.anchors;
-    assign next_deltas = parsed.deltas;
-    assign next_size = parsed.size_bytes;
-    assign next_error = parsed.error;
-    // Each accepted snapshot either completes the package or requests more
-    // bytes. The dispatcher advances immediately on completion, so no global
-    // result_sent state or final-sector cleanup transaction is needed.
+
+    function automatic indexes_t parse_indexes(input header_t header);
+        indexes_t result;
+        logic [767:0] field_value;
+        int cursor;
+        int width;
+        int sample_count;
+        int index_width;
+        int index_count;
+        int index_offset;
+        int index_value;
+        int delta_width;
+        bit bad;
+        result = '0;
+        result.header = header;
+        cursor = int'(header.cursor);
+        bad = header.error;
+        for (int channel = 0; channel < 4; channel++) begin
+            if (!bad && channel < channels(header.format_id)) begin
+                width = width_of(header.format_id,channel);
+                sample_count = samples(header.format_id,channel);
+                index_width = index_bits(width);
+                index_count = header.strategy[channel] ? sample_count/2 : 1;
+                take_field(header.region,int'(header.available_bits),header.package_id,
+                    cursor,index_count*index_width,field_value,bad);
+                for (int sample_index = 0; sample_index < 63; sample_index++) begin
+                    if (!bad && sample_index < sample_count-1) begin
+                        index_offset = (header.strategy[channel] ? sample_index/2 : 0)*index_width;
+                        index_value = int'((field_value >> index_offset) & 768'((1 << index_width)-1));
+                        delta_width = decode_width(index_value,width);
+                        if (delta_width < 0) bad = 1;
+                        else result.widths[channel][sample_index] = 6'(delta_width);
+                    end
+                end
+            end
+        end
+        result.cursor = 10'(cursor);
+        result.error = bad;
+        return result;
+    endfunction
+
+    function automatic void reserve_field(
+        input int available,
+        input bit reverse,
+        inout int cursor,
+        input int count,
+        output logic [9:0] start_bit,
+        inout bit bad
+    );
+        int low_bit;
+        low_bit = reverse ? cursor-count+1 : cursor;
+        start_bit = '0;
+        if (!bad) begin
+            if (count < 0 || low_bit < 0 || low_bit+count > available) bad = 1;
+            else begin
+                start_bit = 10'(low_bit);
+                cursor += reverse ? -count : count;
+            end
+        end
+    endfunction
+
+    function automatic layout_t calculate_layout(input indexes_t indexes);
+        layout_t result;
+        logic [9:0] prefix [0:6][0:3][0:63];
+        int cursor;
+        int sample_count;
+        int total_width;
+        int used_bits;
+        bit bad;
+        result = '0;
+        result.indexes = indexes;
+        cursor = int'(indexes.cursor);
+        bad = indexes.error;
+        // Six combinational prefix levels compute offsets and channel totals.
+        for (int channel = 0; channel < 4; channel++) begin
+            sample_count = samples(indexes.header.format_id,channel);
+            for (int sample_index = 0; sample_index < 64; sample_index++) begin
+                prefix[0][channel][sample_index] = '0;
+                if (sample_index < 63 && sample_index < sample_count-1)
+                    prefix[0][channel][sample_index] = 10'(indexes.widths[channel][sample_index]);
+            end
+        end
+        for (int level = 0; level < 6; level++) begin
+            for (int channel = 0; channel < 4; channel++) begin
+                for (int sample_index = 0; sample_index < 64; sample_index++) begin
+                    prefix[level+1][channel][sample_index] = prefix[level][channel][sample_index];
+                    if (sample_index >= (1 << level))
+                        prefix[level+1][channel][sample_index] = prefix[level][channel][sample_index] +
+                            prefix[level][channel][sample_index-(1 << level)];
+                end
+            end
+        end
+        for (int channel = 0; channel < 4; channel++) begin
+            if (channel < channels(indexes.header.format_id)) begin
+                reserve_field(int'(indexes.header.available_bits),indexes.header.package_id,
+                    cursor,width_of(indexes.header.format_id,channel),result.anchor_start[channel],bad);
+            end
+        end
+        for (int channel = 0; channel < 4; channel++) begin
+            if (channel < channels(indexes.header.format_id)) begin
+                total_width = int'(prefix[6][channel][63]);
+                reserve_field(int'(indexes.header.available_bits),indexes.header.package_id,
+                    cursor,total_width,result.delta_start[channel],bad);
+                for (int sample_index = 1; sample_index < 63; sample_index++)
+                    result.delta_offset[channel][sample_index] = prefix[6][channel][sample_index-1];
+            end
+        end
+        used_bits = indexes.header.package_id ? int'(indexes.header.region_bits)-1-cursor : cursor;
+        if (used_bits <= 0 || used_bits > int'(indexes.header.region_bits)) bad = 1;
+        result.size_bytes = 7'((used_bits+7)/8);
+        result.error = bad;
+        return result;
+    endfunction
+
+    function automatic parsed_t extract_samples(input layout_t layout);
+        parsed_t result;
+        logic [31:0] value;
+        int width;
+        int delta_width;
+        int position;
+        int plane_start;
+        result = '0;
+        result.error = layout.error;
+        if (!layout.error) begin
+            result.format_id = layout.indexes.header.format_id;
+            result.decor = layout.indexes.header.decor;
+            result.size_bytes = layout.size_bytes;
+            for (int channel = 0; channel < 4; channel++) begin
+                if (channel < channels(result.format_id)) begin
+                    width = width_of(result.format_id,channel);
+                    plane_start = plane_base(result.format_id,channel);
+                    result.anchors[channel] = 32'(layout.indexes.header.region >> layout.anchor_start[channel]) & mask_w(width);
+                    for (int sample_index = 0; sample_index < 63; sample_index++) begin
+                        if (sample_index < samples(result.format_id,channel)-1) begin
+                            delta_width = int'(layout.indexes.widths[channel][sample_index]);
+                            position = int'(layout.delta_start[channel]) + int'(layout.delta_offset[channel][sample_index]);
+                            value = '0;
+                            if (delta_width > 0) begin
+                                value = 32'(layout.indexes.header.region >> position) & mask_w(delta_width);
+                                value = $unsigned($signed(value << (32-delta_width)) >>> (32-delta_width));
+                            end
+                            result.deltas = set_sample(result.deltas,plane_start+(sample_index+1)*width,width,value);
+                        end
+                    end
+                end
+            end
+        end
+        return result;
+    endfunction
+
+    header_t header_next;
+    header_t header_data;
+    indexes_t indexes_next;
+    indexes_t indexes_data;
+    layout_t layout_next;
+    layout_t layout_data;
+    parsed_t parsed;
+    logic header_valid;
+    logic header_ready;
+    logic indexes_valid;
+    logic indexes_ready;
+    logic layout_valid;
+    logic layout_ready;
+    logic output_ready;
     logic emit_result;
-    assign emit_result = !next_error || s_final;
-    assign s_done = emit_result;
-    assign s_ready = !m_valid || m_ready;
+    logic response_complete;
+    localparam bit STREAMING = MERGE_PREFIXES &&
+        (HEADER_REGISTERED || INDEX_REGISTERED || LAYOUT_REGISTERED);
+    localparam int unsigned PACKAGE_TAGS = 2 * (2**UNIT_ID_W);
+    logic [PACKAGE_TAGS-1:0] result_sent;
+    logic [UNIT_ID_W:0] response_tag;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            m_valid <= 1'b0;
-        end
-        else begin
-            if (s_ready) begin
-                m_valid <= s_valid && emit_result;
-            end
-        end
-    end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_unit_id <= s_unit_id;
+    assign header_next = parse_header();
+    assign indexes_next = parse_indexes(header_data);
+    assign layout_next = calculate_layout(indexes_data);
+    assign parsed = extract_samples(layout_data);
+    uddc_parse_stage #(.REGISTERED(HEADER_REGISTERED), .DATA_WIDTH($bits(header_t))) u_header (
+        .clk(clk), .rst_n(rst_n), .s_valid(s_valid), .s_ready(s_ready), .s_data(header_next),
+        .m_valid(header_valid), .m_ready(header_ready), .m_data(header_data)
+    );
+    uddc_parse_stage #(.REGISTERED(INDEX_REGISTERED), .DATA_WIDTH($bits(indexes_t))) u_indexes (
+        .clk(clk), .rst_n(rst_n), .s_valid(header_valid), .s_ready(header_ready), .s_data(indexes_next),
+        .m_valid(indexes_valid), .m_ready(indexes_ready), .m_data(indexes_data)
+    );
+    uddc_parse_stage #(.REGISTERED(LAYOUT_REGISTERED), .DATA_WIDTH($bits(layout_t))) u_layout (
+        .clk(clk), .rst_n(rst_n), .s_valid(indexes_valid), .s_ready(indexes_ready), .s_data(layout_next),
+        .m_valid(layout_valid), .m_ready(layout_ready), .m_data(layout_data)
+    );
+    // Response and request handshakes can be on different cycles. done is
+    // meaningful on s_response_valid; streaming dispatch advances separately.
+    assign s_streaming = STREAMING;
+    assign response_tag = {layout_data.indexes.header.unit_id,layout_data.indexes.header.package_id};
+    assign response_complete = !parsed.error || layout_data.indexes.header.final_snapshot;
+    assign emit_result = response_complete && !result_sent[response_tag];
+    assign output_ready = !m_valid || m_ready;
+    assign layout_ready = !emit_result || output_ready;
+    assign s_response_valid = layout_valid && layout_ready;
+    assign s_done = response_complete;
+    // Streaming sources must send a final snapshot even after early success.
+    // Its consumption clears suppression before the slot can be reused.
+    if (STREAMING) begin : suppress_repeated_prefixes
+        for (genvar tag = 0; tag < PACKAGE_TAGS; tag++) begin : package_tag
+            always_ff @(posedge clk or negedge rst_n) begin
+                if (!rst_n) result_sent[tag] <= 1'b0;
+                else if (s_response_valid && response_tag == (UNIT_ID_W+1)'(tag)) begin
+                    if (layout_data.indexes.header.final_snapshot) result_sent[tag] <= 1'b0;
+                    else if (emit_result) result_sent[tag] <= 1'b1;
                 end
             end
         end
+    end else begin : independent_snapshots
+        assign result_sent = '0;
     end
-
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_pkg_id <= s_pkg_id;
-                end
-            end
-        end
+        if (!rst_n) m_valid <= 1'b0;
+        else if (output_ready) m_valid <= layout_valid && emit_result;
     end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_fmt <= next_fmt;
-                end
-            end
-        end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_unit_id <= layout_data.indexes.header.unit_id;
     end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_decor <= next_decor;
-                end
-            end
-        end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_pkg_id <= layout_data.indexes.header.package_id;
     end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_anchors <= next_anchors;
-                end
-            end
-        end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_fmt <= parsed.format_id;
     end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_deltas <= next_deltas;
-                end
-            end
-        end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_decor <= parsed.decor;
     end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_size_bytes <= next_size;
-                end
-            end
-        end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_anchors <= parsed.anchors;
     end
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-        end
-        else begin
-            if (s_ready) begin
-                if (s_valid && emit_result) begin
-                    m_error <= next_error;
-                end
-            end
-        end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_deltas <= parsed.deltas;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_size_bytes <= parsed.size_bytes;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && s_response_valid && emit_result) m_error <= parsed.error;
     end
 endmodule : uddc_channel_split
-`default_nettype wire

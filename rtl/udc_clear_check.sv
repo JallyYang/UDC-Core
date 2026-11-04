@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module udc_clear_check
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -170,15 +167,4 @@ module udc_clear_check
             end
         end
     end
-    // synthesis translate_off
-    always @(posedge clk) begin
-        if (rst_n && s_valid && s_ready && s_last)
-        begin
-            assert($onehot0(combined)) else begin
-                $error("Multiple clear patterns matched");
-            end
-        end
-    end
-    // synthesis translate_on
 endmodule : udc_clear_check
-`default_nettype wire

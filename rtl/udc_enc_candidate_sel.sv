@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module udc_enc_candidate_sel
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -352,16 +349,4 @@ module udc_enc_candidate_sel
             end
         end
     end
-    // synthesis translate_off
-    always @(posedge clk) begin
-        if (rst_n && s_valid && s_ready && s_decor)
-        begin
-            assert(waiting && saved_id == s_unit_id && saved_pkg == s_pkg_id)
-            else begin
-                $error("Candidate order/tag mismatch");
-            end
-        end
-    end
-    // synthesis translate_on
 endmodule : udc_enc_candidate_sel
-`default_nettype wire

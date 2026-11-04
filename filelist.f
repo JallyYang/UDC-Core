@@ -13,6 +13,7 @@ rtl/uddc_dec_core.sv
 rtl/uddc_dec_split.sv
 rtl/uddc_clear_recon.sv
 rtl/uddc_dic_dec.sv
+rtl/uddc_parse_stage.sv
 rtl/uddc_channel_split.sv
 rtl/uddc_delta_cal.sv
 rtl/uddc_correlation.sv

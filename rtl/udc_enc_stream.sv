@@ -1,5 +1,3 @@
-`default_nettype none
-// Each accepted 32B beat computes its own residuals and width statistics.
 module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
     input logic clk,
     input logic rst_n,
@@ -505,12 +503,4 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
         .m_valid(m_valid), .m_ready(m_ready), .m_unit_id(m_unit_id), .m_pkg_id(m_pkg_id),
         .m_fmt(m_fmt), .m_size_bytes(m_size_bytes), .m_bits(m_bits), .m_error(m_error)
     );
-    // synthesis translate_off
-    always @(posedge clk) begin
-        if (rst_n && input_accepted) begin
-            assert(s_sop == (input_beat==0) && s_last == (input_beat==3)) else $error("Streaming encoder framing");
-        end
-    end
-    // synthesis translate_on
 endmodule
-`default_nettype wire

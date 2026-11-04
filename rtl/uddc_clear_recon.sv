@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_clear_recon
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -55,4 +52,3 @@ module uddc_clear_recon
         end
     end
 endmodule : uddc_clear_recon
-`default_nettype wire

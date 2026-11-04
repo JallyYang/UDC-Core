@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_dic_dec
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -11,6 +8,8 @@ module uddc_dic_dec
         input logic s_valid,
         output logic s_ready,
         output logic s_done,
+        output logic s_response_valid,
+        output logic s_streaming,
         input logic [UNIT_ID_W - 1:0] s_unit_id,
         input logic s_pkg_id,
         input logic [3:0] s_cbmd,
@@ -54,12 +53,16 @@ module uddc_dic_dec
     logic [511:0] c_planes;
     logic [6:0] c_size_bytes;
     logic c_error;
-    uddc_channel_split #(.UNIT_ID_W(UNIT_ID_W)) u_parse (
+    // Core mode merges successful prefixes. s_streaming reports whether
+    // optional registers enable that mode; all-bypass uses immediate responses.
+    uddc_channel_split #(.UNIT_ID_W(UNIT_ID_W), .MERGE_PREFIXES(1'b1)) u_parse (
         .clk(clk),
         .rst_n(rst_n),
         .s_valid(s_valid),
         .s_ready(s_ready),
         .s_done(s_done),
+        .s_response_valid(s_response_valid),
+        .s_streaming(s_streaming),
         .s_unit_id(s_unit_id),
         .s_pkg_id(s_pkg_id),
         .s_cbmd(s_cbmd),
@@ -144,4 +147,3 @@ module uddc_dic_dec
         .m_error(m_error)
     );
 endmodule : uddc_dic_dec
-`default_nettype wire

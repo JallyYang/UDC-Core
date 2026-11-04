@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module udc_enc_decorrelate
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -383,4 +380,3 @@ module udc_enc_decorrelate
         end
     end
 endmodule : udc_enc_decorrelate
-`default_nettype wire

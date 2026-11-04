@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_reconstruct_pixel
     #(
         parameter int unsigned UNIT_ID_W = 4
@@ -290,4 +287,3 @@ module uddc_reconstruct_pixel
         end
     end
 endmodule : uddc_reconstruct_pixel
-`default_nettype wire

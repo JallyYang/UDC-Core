@@ -34,7 +34,7 @@ int main(int argc,char**argv) {
         {d.s_valid,d.s_ready,d.s_sop,d.s_last,d.s_data,
          d.m_valid,d.m_ready,d.m_sop,d.m_last,d.m_data}, 3,
         [&](bool raw) { d.s_cbmd=raw?0:5; d.s_has_data=1; },
-        [&] { return !d.m_error; })) return 1;
+        [&] { return !d.m_error; }, 3u<<2)) return 1;
     d.rst_n=0; d.s_valid=0; d.m_ready=0;
     for(int i=0;i<3;i++) { d.clk=0; d.eval(); d.clk=1; d.eval(); }
     d.rst_n=1;

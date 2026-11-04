@@ -27,7 +27,10 @@ levels as 2+1. No automatic retiming crosses these register boundaries.
 This benchmark isolates arithmetic on ready operands. It does **not** include
 runtime format selection, parser bit extraction, valid/ready control, color
 recovery, pixel reconstruction, or output forwarding. It is not the timing
-of the complete current `uddc_delta_cal` or decoder. The synthesis tool may
+of the complete current `uddc_delta_cal` or decoder. The current parser's
+three optional register boundaries, streaming prefixes and result suppression
+are described in [the parser pipeline document](../../docs/UDDC_PARSER_PIPELINE.md);
+they are outside this fixed arithmetic benchmark. The synthesis tool may
 optimize associative sums and share logic differently across alternatives.
 
 ## Reference conditions and results

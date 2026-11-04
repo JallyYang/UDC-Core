@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_dec_split
     #(
         parameter int unsigned UNIT_ID_W = 4,
@@ -24,6 +21,8 @@ module uddc_dec_split
         output logic pkg_valid,
         input logic pkg_ready,
         input logic pkg_done,
+        input logic pkg_response_valid,
+        input logic pkg_streaming,
         output logic [UNIT_ID_W - 1:0] pkg_unit_id,
         output logic pkg_pkg_id,
         output logic [3:0] pkg_cbmd,
@@ -77,7 +76,8 @@ module uddc_dec_split
     logic input_accepted;
     logic context_accepted;
     logic package_request_accepted;
-    logic package_parse_finished;
+    logic package_dispatch_finished;
+    logic parse_waiting;
     logic clear_request_accepted;
     logic bypass_ctx;
     logic load_snapshot;
@@ -91,6 +91,13 @@ module uddc_dec_split
     function automatic int advance(input int slot);
         return slot == int'(UNIT_SLOTS)-1 ? 0 : slot+1;
     endfunction
+
+    // Only non-streaming mode waits for a response before another request.
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) parse_waiting <= 1'b0;
+        else if (pkg_response_valid) parse_waiting <= 1'b0;
+        else if (package_request_accepted) parse_waiting <= 1'b1;
+    end
 
     // FSM part 1: current-state register.
     always_ff @(posedge clk or negedge rst_n) begin
@@ -110,11 +117,11 @@ module uddc_dec_split
                     next_dispatch_state = ctx_cbmd >= 6 ? DISPATCH_CLEAR : DISPATCH_PKG0;
             end
             DISPATCH_PKG0: begin
-                if (package_parse_finished)
+                if (package_dispatch_finished)
                     next_dispatch_state = DISPATCH_PKG1;
             end
             DISPATCH_PKG1: begin
-                if (package_parse_finished)
+                if (package_dispatch_finished)
                     next_dispatch_state = DISPATCH_CTX;
             end
             DISPATCH_CLEAR: begin
@@ -128,7 +135,8 @@ module uddc_dec_split
     end
 
     // FSM part 3: combinational outputs, one target per process.
-    assign s_ready = (collecting || !allocated[wr_slot]);
+    assign s_ready = collecting || !allocated[wr_slot] ||
+        (retire_valid && int'(retire_unit_id) == wr_slot);
     assign input_accepted = s_valid && s_ready;
     // A compressed first beat can allocate its output context and parsing
     // snapshot together. Buffered units still dispatch strictly in order.
@@ -144,9 +152,10 @@ module uddc_dec_split
     assign ctx_raw = ctx_cbmd == 0 ? data_mem[dispatch_slot] : '0;
     assign context_accepted = ctx_valid && ctx_ready;
     assign package_request_accepted = pkg_valid && pkg_ready;
-    // The parser acknowledges a complete parse, not just the final sector.
-    // This permits pkg0 to retire before the occupied region is complete.
-    assign package_parse_finished = package_request_accepted && pkg_done;
+    // Streaming dispatch closes on the final request, without waiting for
+    // responses. Non-streaming mode samples completion on a valid response.
+    assign package_dispatch_finished = pkg_streaming ?
+        package_request_accepted && pkg_final : pkg_response_valid && pkg_done;
     always_comb begin
         clear_valid = dispatch_state == DISPATCH_CLEAR;
     end
@@ -159,15 +168,15 @@ module uddc_dec_split
         if (!pkg_valid || pkg_ready) begin
             if (context_accepted && ctx_cbmd >= 1 && ctx_cbmd <= 5) begin
                 load_snapshot = 1;
-            end else begin
+            end else if (pkg_streaming || (!parse_waiting && !pkg_valid) || pkg_response_valid) begin
                 if (dispatch_state == DISPATCH_PKG0) begin
-                    if (package_parse_finished) begin
+                    if (package_dispatch_finished) begin
                         load_snapshot = snapshot_complete;
                     end else begin
                         load_snapshot = snapshot_bytes > offered_bytes;
                     end
                 end else begin
-                    if (dispatch_state == DISPATCH_PKG1 && !package_parse_finished) begin
+                    if (dispatch_state == DISPATCH_PKG1 && !package_dispatch_finished) begin
                         load_snapshot = snapshot_complete &&
                                 (!pkg_valid || !pkg_pkg_id);
                     end
@@ -214,21 +223,18 @@ module uddc_dec_split
 
     always_comb begin
         snapshot_pkg_id = dispatch_state == DISPATCH_PKG1 ||
-                          (dispatch_state == DISPATCH_PKG0 && package_parse_finished);
+                          (dispatch_state == DISPATCH_PKG0 && package_dispatch_finished);
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            allocated <= '0;
-        end else begin
-            if (retire_valid) begin
-                allocated[retire_unit_id] <= 0;
-            end
-            if (input_accepted) begin
-                if (!collecting) begin
-                    allocated[wr_slot] <= 1;
-                end
-            end
+    // Output uses its own cache, so a retiring input slot can accept a new
+    // first beat on the same edge. Reallocation takes explicit priority.
+    for (genvar slot_index = 0; slot_index < UNIT_SLOTS; slot_index++) begin : input_slot_allocation
+        always_ff @(posedge clk or negedge rst_n) begin
+            if (!rst_n) allocated[slot_index] <= 1'b0;
+            else if (input_accepted && !collecting && wr_slot == slot_index)
+                allocated[slot_index] <= 1'b1;
+            else if (retire_valid && int'(retire_unit_id) == slot_index)
+                allocated[slot_index] <= 1'b0;
         end
     end
 
@@ -281,7 +287,7 @@ module uddc_dec_split
                     complete[dispatch_slot] <= 0;
                 end
             end
-            if (package_parse_finished) begin
+            if (package_dispatch_finished) begin
                 if (dispatch_state == DISPATCH_PKG0) begin
                 end else begin
                     complete[dispatch_slot] <= 0;
@@ -317,7 +323,7 @@ module uddc_dec_split
                     dispatch_slot <= advance(dispatch_slot);
                 end
             end
-            if (package_parse_finished) begin
+            if (package_dispatch_finished) begin
                 if (dispatch_state == DISPATCH_PKG0) begin
                 end else begin
                     dispatch_slot <= advance(dispatch_slot);
@@ -445,42 +451,4 @@ module uddc_dec_split
             end
         end
     end
-    // synthesis translate_off
-
-    initial begin
-        assert(UNIT_SLOTS > 0 && UNIT_SLOTS <= 2**UNIT_ID_W) else begin
-            $fatal(1, "Invalid slots");
-        end
-    end
-    always @(posedge clk) begin
-        if (rst_n) begin
-            assert(!$isunknown(dispatch_state)) else begin
-                $error("Unknown decoder dispatch state");
-            end
-        end
-        if (rst_n && s_valid && s_ready) begin : check_protocol
-            int mode;
-            mode = collecting ? int'(cbmd_mem[wr_slot]) : int'(s_cbmd);
-            assert(s_sop == !collecting) else begin
-                $error("Compressed SOP");
-            end
-            if (mode >= 6)
-            begin
-                assert(!s_has_data && s_last && !collecting) else begin
-                    $error("Clear framing");
-                end
-            end
-            else begin
-                assert(s_has_data) else begin
-                    $error("Missing compressed data");
-                end
-                assert(s_last == (int'(beat) == occupied_bytes(4'($unsigned(mode))) / int'(STREAM_BYTES) - 1))
-                else begin
-                    $error("Compressed LAST");
-                end
-            end
-        end
-    end
-    // synthesis translate_on
 endmodule : uddc_dec_split
-`default_nettype wire

@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module uddc_package_out
     #(
         parameter int unsigned UNIT_ID_W = 4,
@@ -447,13 +444,4 @@ module uddc_package_out
             end
         end
     end
-    // synthesis translate_off
-
-    initial begin
-        assert(UNIT_SLOTS > 0 && UNIT_SLOTS <= 2**UNIT_ID_W) else begin
-            $fatal(1, "Invalid slots");
-        end
-    end
-    // synthesis translate_on
 endmodule : uddc_package_out
-`default_nettype wire

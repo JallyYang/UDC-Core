@@ -1,6 +1,3 @@
-// Functional RTL baseline. See ../README.md for verification and timing limitations.
-`default_nettype none
-
 module udc_enc_core
     #(
         parameter int unsigned UNIT_ID_W = 4,
@@ -161,4 +158,3 @@ module udc_enc_core
         .retire_unit_id(retire_unit_id)
     );
 endmodule : udc_enc_core
-`default_nettype wire
