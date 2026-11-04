@@ -6,7 +6,7 @@
 ## 逐拍运算
 
 `input_beat[0]` 选择包内前/后半拍，`input_beat[1]` 选择 pkg0/pkg1。
-`original_partial` 和 `color_partial` 分别保存原始与颜色变换候选的原始通道平面、
+`original_partial_*` 和 `color_partial_*` 独立字段分别保存原始与颜色变换候选的通道平面、
 差分、锚点、pair index 和每通道 global index。两种候选并行计算。
 
 第一半拍只计算原始位位置落在低 256bit 的样本。第二半拍只计算高 256bit 样本，
@@ -25,7 +25,8 @@
 其注册的 32B 请求同时交给 Clear 比较器和流式编码器，两者都能接收时才完成分发，
 避免任何一支重复消费一拍。格式和尺寸限制从该 unit 的 slot 元数据读取。
 
-流式编码器包含两项候选 FIFO，接收完整包的最终差分、策略、索引及长度，再交给
+流式编码器用 `candidate_*[0:1]` 等独立字段数组实现两项候选 FIFO，
+接收完整包的最终差分、策略、索引及长度，再交给
 `udc_enc_package` 组装。该缓冲允许 DIC 在完整上下文交付前完成 pkg0；
 不会因为包结果等待上下文、上下文等待最后一拍输入而形成相互等待。
 FIFO 满时仍可接收只更新局部状态的前半拍；需要提交整包候选的后半拍通过 ready 反压。
@@ -88,3 +89,5 @@ ready/valid，时序逻辑负责清除控制和有效位。RTL 文件头说明�
 translate_off/on 仿真块已移除；协议约束由本文、接口文档和测试平台说明。
 本路径的 T9/T7 与 UDDC 的可选解析级无关；解码周期见
 [UDDC 解析流水](UDDC_PARSER_PIPELINE.md)。
+
+所有 RTL 不使用结构体，完整规则见 [AGENTS.md](../AGENTS.md)。

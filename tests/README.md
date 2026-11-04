@@ -12,17 +12,19 @@
 bash tests/run_uddc.sh
 
 # 三个寄存点全部组合旁路
-UDDC_PARSE_HEADER_REG=0 UDDC_PARSE_INDEX_REG=0 UDDC_PARSE_LAYOUT_REG=0 \
+UDDC_PARSE_OFFSET_REG=0 UDDC_PARSE_INDEX_REG=0 UDDC_PARSE_LAYOUT_REG=0 \
   bash tests/run_uddc.sh
 
 # 独立解析器八种寄存组合
 bash tests/run_uddc_parser.sh
 ```
 
-`UDDC_PARSE_HEADER_REG`、`UDDC_PARSE_INDEX_REG`、`UDDC_PARSE_LAYOUT_REG`
+`UDDC_PARSE_OFFSET_REG`、`UDDC_PARSE_INDEX_REG`、`UDDC_PARSE_LAYOUT_REG`
 均为0/1，默认1，脚本将它们作为同名编译宏传入。开启一个或两个时仍检查功能并报告
 周期；三个全开和全关的核心回归还检查下表中的延迟及空拍上限。
-三个可选寄存点对应包头后、索引后、位置计算后；原有结果寄存器始终保留。
+三个可选寄存点依次对应包头与索引解码后、偏移前三层后、偏移后三层及位置计算后。
+包头后的独立寄存点已迁移到偏移计算中间；原有结果寄存器始终保留。
+原 `UDDC_PARSE_HEADER_REG` 已更名为 `UDDC_PARSE_OFFSET_REG`。
 
 `UDDC_TEST_BUILD_DIR` 可复用构建目录，`UDDC_TEST_JOBS` 控制并行数（默认4）。
 核心默认参数为8 slot，回归默认使用4 slot；可设 `UDDC_TEST_SLOTS=8` 验证另一配置。
@@ -79,7 +81,7 @@ slot 回收与新分配同拍发生时，新分配优先。输入slot复用和�
 | 最终坏头，1 unit | T13/T16 | T10/T13 | 两配置均0 |
 | Clear开头后接DIC，128 unit | T4/T7（Clear） | T4/T7（Clear） | 全开6，全关3 |
 
-四级差分累加分别计算距离1、2、4、8；解析器位置计算的六层前缀求和是单拍组合逻辑，
+四级差分累加分别计算距离1、2、4、8；解析器的位置计算是六层前缀求和，默认以 OFFSET 寄存点分为3+3两拍，
 不能计为六拍。核心中颜色恢复为组合模式，像素重排由一个输出寄存器捕获。
 独立 `uddc_correlation` 的默认输出寄存选项仍为1。
 
@@ -116,5 +118,7 @@ T511接收最后一拍，启用DIC时首拍T9，limit=0时T7。
 python3 tests/check_rtl_style.py
 ```
 
-该脚本检查单变量声明、单目标always、两套三段式FSM，以及全RTL语法和展开。
+该脚本在预处理前拒绝 packed/unpacked/匿名结构体，包括未启用分支和未展开的宏，
+并检查单变量声明、单目标always、
+两套三段式FSM，以及全RTL语法和展开。Codex规则见 [AGENTS.md](../AGENTS.md)。
 实际文件/always数量以脚本输出为准。规范见 [STYLE.md](../rtl/STYLE.md)。

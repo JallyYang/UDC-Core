@@ -17,26 +17,31 @@
 
 | 宏 | 默认 | 寄存前的组合工作 | 对应模块参数 |
 | --- | --- | --- | --- |
-| `UDDC_PARSE_HEADER_REG` | 1 | 保留位、格式、decor、各通道策略 | `HEADER_REGISTERED` |
-| `UDDC_PARSE_INDEX_REG` | 1 | 索引提取、差分位宽解码 | `INDEX_REGISTERED` |
-| `UDDC_PARSE_LAYOUT_REG` | 1 | 锚点/差分位置、各差分偏移、尺寸和范围检查 | `LAYOUT_REGISTERED` |
+| `UDDC_PARSE_INDEX_REG` | 1 | 包头/格式/策略解析、索引提取、差分位宽解码 | `INDEX_REGISTERED` |
+| `UDDC_PARSE_OFFSET_REG` | 1 | 偏移前缀求和的前三层：距离1、2、4 | `OFFSET_REGISTERED` |
+| `UDDC_PARSE_LAYOUT_REG` | 1 | 偏移后三级：距离8、16、32；锚点/差分位置、尺寸与范围检查 | `LAYOUT_REGISTERED` |
 
 宏为 1 时打一拍，为 0 时数据、valid、ready 组合直通。默认定义位于
 `rtl/uddc_channel_split.sv`，可用编译选项覆盖，例如：
 
 ```text
-+define+UDDC_PARSE_HEADER_REG=1
++define+UDDC_PARSE_OFFSET_REG=1
 +define+UDDC_PARSE_INDEX_REG=1
 +define+UDDC_PARSE_LAYOUT_REG=0
 ```
 
 此配置增加两拍；全部开启增加三拍，全部关闭不增加内部寄存级。
+可选寄存点仍为三个，边界改为 INDEX/OFFSET/LAYOUT。
 每个寄存级携带对应快照及 unit_id/pkg_id/final，采用
 `ready = !valid || downstream_ready`，支持停顿和同拍替换。
 复位只在时序逻辑清除 valid/控制位并保护写入，组合逻辑不直接受复位控制。
 
-位置计算使用六层**组合**前缀求和，计算最多 63 个差分的偏移和总长度。
-它不是六拍流水，也不是后级 `uddc_delta_cal` 的四级预测差分累加。
+位置计算的六层前缀求和拆为3+3：前三层在 OFFSET 寄存点前，后三层在其后，
+再执行字段定位和范围检查。默认跨两个时钟级；关闭 OFFSET 后可合并为组合通路。
+这里求和的是编码位宽，后级 `uddc_delta_cal` 的四级累加恢复的是样本数值，两者不同。
+包头字段较短，现与索引解析共用第一级；原包头后单独的寄存点已移到前缀求和中间。
+原宏 `UDDC_PARSE_HEADER_REG` 已更名为 `UDDC_PARSE_OFFSET_REG`，模块参数
+`HEADER_REGISTERED` 同步改为 `OFFSET_REGISTERED`；旧编译选项和参数覆盖需相应修改。
 最后一段按绝对 bit 位置直接提取锚点、差分，再符号扩展和排列通道平面。
 这避免先动态提取整个通道字段、再动态提取单个差分的两次选择。
 
@@ -72,12 +77,12 @@ T0 为第一拍输入握手，输入连续、下游始终接收、无前序排�
 | 时钟沿 | 输入/请求 | pkg0 的快照解析 | pkg1 / 后级 |
 | --- | --- | --- | --- |
 | T0 | 接收 32B，提交 context，寄存首份快照 | — | — |
-| T1 | 接收累计 64B，寄存 64B 快照 | 32B 包头解析 | — |
-| T2 | 接收累计 96B，寄存最终快照 | 32B 索引解码；64B 包头解析 | — |
-| T3 | 接受 pkg0 最终请求，同拍寄存 pkg1 请求 | 32B 位置计算；64B 索引解码；96B 包头解析 | — |
-| T4 | 接受 pkg1 请求，允许调度下一 unit | 32B 不足，不输出；64B 位置计算；96B 索引解码 | pkg1 包头解析 |
-| T5 | — | 64B 成功，寄存 pkg0 结果；96B 位置计算 | pkg1 索引解码 |
-| T6 | — | 96B 重复成功，不输出，并清除去重位 | pkg0 距离1累加；pkg1 位置计算 |
+| T1 | 接收累计 64B，寄存 64B 快照 | 32B 包头及索引解析 | — |
+| T2 | 接收累计 96B，寄存最终快照 | 32B 偏移前三层；64B 包头及索引 | — |
+| T3 | 接受 pkg0 最终请求，同拍寄存 pkg1 请求 | 32B 偏移后三层及定位；64B 前三层；96B 包头及索引 | — |
+| T4 | 接受 pkg1 请求，允许调度下一 unit | 32B 不足，不输出；64B 后三层及定位；96B 前三层 | pkg1 包头及索引解析 |
+| T5 | — | 64B 成功，寄存 pkg0 结果；96B 后三层及定位 | pkg1 偏移前三层 |
+| T6 | — | 96B 重复成功，不输出，并清除去重位 | pkg0 距离1累加；pkg1 偏移后三层及定位 |
 | T7 | — | — | pkg0 距离2累加；pkg1 提取并寄存解析结果 |
 | T8 | — | — | pkg0 距离4累加；pkg1 距离1累加 |
 | T9 | — | — | pkg0 距离8累加；pkg1 距离2累加 |
@@ -114,7 +119,7 @@ Clear 开头随后接 DIC 的启动切换，全开仍有 6 拍空拍，全关为
 
 ```bash
 bash tests/run_uddc.sh
-UDDC_PARSE_HEADER_REG=0 UDDC_PARSE_INDEX_REG=0 UDDC_PARSE_LAYOUT_REG=0 \
+UDDC_PARSE_OFFSET_REG=0 UDDC_PARSE_INDEX_REG=0 UDDC_PARSE_LAYOUT_REG=0 \
   bash tests/run_uddc.sh
 bash tests/run_uddc_parser.sh
 ```
@@ -123,3 +128,14 @@ bash tests/run_uddc_parser.sh
 检查重复成功抑制、最终快照清理、tag 重用、两种包方向、最终错误及随机反压。
 完整核心检查 2574 个 unit，并覆盖中途复位、输出稳定性和顺序。
 这些周期验证不替代真实 TSMC7 工艺角下的综合、STA 和布局布线。
+
+## RTL 数据表示与规则
+
+全 RTL 禁止使用 packed/unpacked/匿名结构体，规则写入根目录
+[AGENTS.md](../AGENTS.md)，由 `tests/check_rtl_style.py` 检查。
+包头、索引、偏移和布局均使用独立命名的信号/数组；弹性寄存器接口仅用显式位宽
+拼接传递这些字段。函数的多字段返回顺序由赋值拼接及相邻注释标明。
+UDC 候选 FIFO 和 UDDC 差分寄存级也已拆为独立字段数组。
+
+本次迁移保持全开/全关的总寄存级数量及接口握手约定；周期和功能由回归检查。
+前三层与后三层的划分是 RTL 结构调整，尚无真实 TSMC7 工艺库下的时序签核结果。

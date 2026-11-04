@@ -223,14 +223,8 @@ module udc_enc_index_sel
     logic [3:0] next_strategy;
     logic [31:0][4:0] next_indexes;
     logic [9:0] next_length;
-    typedef struct packed {
-        logic [3:0] strategy;
-        logic [31:0][4:0] indexes;
-        logic [9:0] length;
-    } index_selection_t;
-    index_selection_t index_selection;
 
-    function automatic index_selection_t compute_index_selection(
+    function automatic logic [173:0] compute_index_selection(
         input logic [511:0] arg_s_deltas,
         input logic [3:0] arg_s_fmt
     );
@@ -321,10 +315,8 @@ module udc_enc_index_sel
         end
         return {value_next_strategy, value_next_indexes, value_next_length};
     endfunction
-    assign index_selection = compute_index_selection(s_deltas, s_fmt);
-    assign next_strategy = index_selection.strategy;
-    assign next_indexes = index_selection.indexes;
-    assign next_length = index_selection.length;
+    // Function result order: strategy[3:0], indexes[159:0], length[9:0].
+    assign {next_strategy,next_indexes,next_length} = compute_index_selection(s_deltas,s_fmt);
     assign s_ready = !m_valid || m_ready;
 
     always_ff @(posedge clk or negedge rst_n) begin

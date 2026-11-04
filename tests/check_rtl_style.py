@@ -21,8 +21,7 @@ def assigned_variables(node):
     def visit(expression):
         if kind(expression) in ('SyntaxKind.AssignmentExpression',
                                  'SyntaxKind.NonblockingAssignmentExpression'):
-            # Array elements and slices belong to one signal. Struct members
-            # are checked independently, including payload pipeline registers.
+            # Array elements and slices belong to one independently named signal.
             name = re.sub(r'\[[^\]]*\]', '', str(expression.left).strip())
             result.add(name)
 
@@ -36,8 +35,15 @@ failures = []
 process_count = 0
 file_count = 0
 fsm_count = 0
-for path in sorted((root/'rtl').glob('*.sv')):
+for path in sorted(p for p in (root/'rtl').rglob('*')
+                   if p.suffix in ('.sv', '.v', '.svh', '.vh')):
     source = path.read_text()
+    # Scan before preprocessing so disabled branches and unused macros cannot
+    # hide a forbidden declaration. Comments, strings and escaped names skip.
+    for token in re.finditer(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\\[^\s]+|[A-Za-z_$][A-Za-z0-9_$]*', source):
+        if token.group() == 'struct':
+            line = source.count('\n', 0, token.start()) + 1
+            failures.append(f'{path.relative_to(root)}:{line}: RTL structures are forbidden; use named signals and arrays')
     tree = SyntaxTree.fromText(source, name=str(path))
     compilation.addSyntaxTree(tree)
     file_count += 1
@@ -96,4 +102,4 @@ for diagnostic in compilation.getAllDiagnostics():
 if failures:
     print('\n'.join(failures), file=sys.stderr)
     raise SystemExit(1)
-print(f'PASS RTL style: {file_count} files, {process_count} always blocks, {fsm_count} three-part FSMs; no syntax/elaboration errors')
+print(f'PASS RTL style: {file_count} files, {process_count} always blocks, {fsm_count} three-part FSMs; no structures or syntax/elaboration errors')

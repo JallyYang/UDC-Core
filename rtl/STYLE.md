@@ -3,8 +3,11 @@
 - Declare one variable per declaration and per line, including function
   arguments, local variables, parameters and unpacked arrays.
 - Each `always`, `always_comb` or `always_ff` process assigns only one target
-  variable. Array elements and slices count as one signal; payload struct
-  fields have separate processes. Loop-control variables are not state outputs.
+  variable. Array elements and slices count as one signal. Loop-control
+  variables are not state outputs.
+- Do not use packed/unpacked structures, anonymous structures, or typedef
+  structures anywhere in RTL. Keep pipeline/FIFO fields as named signals or
+  arrays. Function/interface concatenations must have explicit widths and order.
 - Write state machines in three parts: a dedicated current-state register,
   combinational next-state `case`, and separate output logic. Split the output
   part into one process per variable. Preserve the existing combinational or
@@ -28,5 +31,6 @@
   together with functional or pipeline changes; label nondefault configurations.
 
 Run `python3 tests/check_rtl_style.py` with `pyslang==12.1.0` installed to check
-declarations, assignment targets, both dispatch FSMs and RTL elaboration.
+the structure ban, declarations, assignment targets, both dispatch FSMs and
+RTL elaboration. Repository-wide Codex rules are in [AGENTS.md](../AGENTS.md).
 Run `bash tests/run_uddc.sh` to check decoder functionality and cycle latency.

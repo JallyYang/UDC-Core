@@ -12,17 +12,17 @@ else
 fi
 jobs=${UDDC_TEST_JOBS:-4}
 slots=${UDDC_TEST_SLOTS:-4}
-header_reg=${UDDC_PARSE_HEADER_REG:-1}
+offset_reg=${UDDC_PARSE_OFFSET_REG:-1}
 index_reg=${UDDC_PARSE_INDEX_REG:-1}
 layout_reg=${UDDC_PARSE_LAYOUT_REG:-1}
-for value in "$header_reg" "$index_reg" "$layout_reg"; do
+for value in "$offset_reg" "$index_reg" "$layout_reg"; do
     [[ "$value" == 0 || "$value" == 1 ]] || { echo 'Parser register switches must be 0 or 1' >&2; exit 2; }
 done
-extra_stages=$((header_reg + index_reg + layout_reg))
+extra_stages=$((offset_reg + index_reg + layout_reg))
 # -include also accommodates Python-distributed Verilator builds whose make
 # configuration leaves the GCC precompiled-header inclusion flag empty.
 common=(--cc --exe --build --assert -Wno-fatal -j "$jobs" -CFLAGS -O0
-        +define+UDDC_PARSE_HEADER_REG="$header_reg"
+        +define+UDDC_PARSE_OFFSET_REG="$offset_reg"
         +define+UDDC_PARSE_INDEX_REG="$index_reg"
         +define+UDDC_PARSE_LAYOUT_REG="$layout_reg"
         -MAKEFLAGS 'CFG_CXXFLAGS_PCH_I=-include OPT_FAST=-O0')

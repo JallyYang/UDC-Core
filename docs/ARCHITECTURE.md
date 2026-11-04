@@ -96,7 +96,8 @@ flowchart LR
 
 这里没有通用 FIFO IP。顺序 FIFO 由 `order_mem + head + tail + count` 实现，
 数据缓存用 slot 编址，流水级间用单项弹性寄存器解耦。数组声明不等于已经实现 SRAM，
-实际存储器或触发器映射由综合决定。
+实际存储器或触发器映射由综合决定。所有状态与 FIFO 字段使用独立命名信号/数组，
+不使用结构体；Codex 规则和检查入口见 [AGENTS.md](../AGENTS.md)。
 
 | 位置 | 容量/主要载荷 | 写入与读取规则 |
 | --- | --- | --- |
@@ -173,9 +174,9 @@ flowchart LR
 | 阶段 | 组合工作 | 寄存容量/选择 |
 | --- | --- | --- |
 | `uddc_dec_split` 请求 | 输入缓存和本拍输入转发，选择快照/包号 | 1 份区域快照 |
-| 解析包头 | 保留位、格式、decor、策略 | HEADER 可选单项寄存级，默认开 |
-| 解析索引 | 动态索引提取、实际差分宽度解码 | INDEX 可选单项寄存级，默认开 |
-| 解析位置 | 六层组合前缀求和计算偏移、锚点/差分位置及范围 | LAYOUT 可选单项寄存级，默认开 |
+| 解析包头与索引 | 保留位、格式、decor、策略；动态索引提取和差分位宽解码 | INDEX 可选单项寄存级，默认开 |
+| 偏移计算前半 | 位宽前缀求和距离1、2、4 | OFFSET 可选单项寄存级，默认开；由原包头后寄存点迁移 |
+| 偏移计算后半及位置 | 距离8、16、32；锚点/差分位置、尺寸及范围 | LAYOUT 可选单项寄存级，默认开 |
 | 提取样本 | 锚点/差分提取、符号扩展、通道平面排列、结果去重 | 原有解析结果寄存器 |
 | `uddc_delta_cal` stage0～3 | 距离1、2、4、8的预测差分累加 | 四个单包寄存级，每级实际计算 |
 | 末级恢复 | 加锚点、组合颜色恢复、像素重排 | `uddc_reconstruct_pixel` 单包寄存器 |
@@ -288,12 +289,12 @@ split 的旧 64B `pkg_*` 接口在核心中 ready 恒为 1，其数据不进入�
 | 时钟沿 | 输入/快照调度 | 解析与后级 |
 | --- | --- | --- |
 | T0 | 接收32B、提交 context、寄存首份快照 | — |
-| T1 | 接收64B、更新快照 | 32B 包头解析 |
-| T2 | 接收96B、寄存最终快照 | 32B 索引；64B 包头 |
-| T3 | 接受 pkg0 最终请求、寄存 pkg1 请求 | 32B 位置；64B 索引；96B 包头 |
-| T4 | 接受 pkg1 请求，可调度下一 unit | 32B 提取或不足；64B 位置；96B 索引；pkg1 包头 |
-| T5 | — | 64B 提取；96B 位置；pkg1 索引 |
-| T6 | — | 96B 提取；pkg1 位置；pkg0 可能已进入差分累加 |
+| T1 | 接收64B、更新快照 | 32B 包头与索引解析 |
+| T2 | 接收96B、寄存最终快照 | 32B 偏移前三层；64B 包头与索引 |
+| T3 | 接受 pkg0 最终请求、寄存 pkg1 请求 | 32B 后三层及位置；64B 前三层；96B 包头与索引 |
+| T4 | 接受 pkg1 请求，可调度下一 unit | 32B 提取或不足；64B 后三层及位置；96B 前三层；pkg1 包头与索引 |
+| T5 | — | 64B 提取；96B 后三层及位置；pkg1 前三层 |
+| T6 | — | 96B 提取；pkg1 后三层及位置；pkg0 可能已进入差分累加 |
 | T7 | — | pkg1 解析结果寄存；pkg0 后级继续运行 |
 | T8～T11 | — | pkg1 距离1、2、4、8累加；pkg0 并行恢复，最晚T12写缓存 |
 | T12 | — | pkg1 加锚点、颜色恢复、像素重排后寄存 |
@@ -418,7 +419,7 @@ Clear 模板不一致、直接调用 Clear 子模块时索引大于9、内部非
 
 ```bash
 bash tests/run_uddc.sh
-UDDC_PARSE_HEADER_REG=0 UDDC_PARSE_INDEX_REG=0 UDDC_PARSE_LAYOUT_REG=0 bash tests/run_uddc.sh
+UDDC_PARSE_OFFSET_REG=0 UDDC_PARSE_INDEX_REG=0 UDDC_PARSE_LAYOUT_REG=0 bash tests/run_uddc.sh
 bash tests/run_uddc_parser.sh
 bash tests/run_udc_stream.sh
 python3 tests/check_rtl_style.py

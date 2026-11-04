@@ -181,13 +181,8 @@ module udc_enc_delta
     endfunction
     logic [511:0] next_delta;
     logic [3:0][31:0] next_anchor;
-    typedef struct packed {
-        logic [511:0] deltas;
-        logic [3:0][31:0] anchors;
-    } difference_result_t;
-    difference_result_t difference_result;
 
-    function automatic difference_result_t compute_difference(
+    function automatic logic [639:0] compute_difference(
         input logic [3:0] arg_s_fmt,
         input logic [511:0] arg_s_planes
     );
@@ -229,9 +224,8 @@ module udc_enc_delta
         end
         return {value_next_delta, value_next_anchor};
     endfunction
-    assign difference_result = compute_difference(s_fmt, s_planes);
-    assign next_delta = difference_result.deltas;
-    assign next_anchor = difference_result.anchors;
+    // Function result order: deltas[511:0], anchors[127:0].
+    assign {next_delta,next_anchor} = compute_difference(s_fmt,s_planes);
     assign s_ready = !m_valid || m_ready;
 
     always_ff @(posedge clk or negedge rst_n) begin

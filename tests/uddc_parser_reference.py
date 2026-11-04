@@ -42,7 +42,7 @@ output logic reference_error'''
 shared = '.clk(clk),.rst_n(rst_n),.s_unit_id(s_unit_id),.s_pkg_id(s_pkg_id),.s_cbmd(s_cbmd),.s_region(s_region),.s_available_bytes(s_available_bytes),.s_final(s_final)'
 wrapper = 'module parser_compare (\n'+ports+'\n);\n'
 for mode in range(8):
-    wrapper += f'''uddc_channel_split #(.HEADER_REGISTERED({mode&1}),.INDEX_REGISTERED({(mode>>1)&1}),.LAYOUT_REGISTERED({(mode>>2)&1}),.MERGE_PREFIXES(1'b1)) parser_{mode} (
+    wrapper += f'''uddc_channel_split #(.OFFSET_REGISTERED({mode&1}),.INDEX_REGISTERED({(mode>>1)&1}),.LAYOUT_REGISTERED({(mode>>2)&1}),.MERGE_PREFIXES(1'b1)) parser_{mode} (
 {shared},.s_valid(s_valid[{mode}]),.s_ready(s_ready[{mode}]),.s_response_valid(response_valid[{mode}]),.s_streaming(),.s_done(done[{mode}]),
 .m_valid(m_valid[{mode}]),.m_ready(m_ready[{mode}]),.m_unit_id(m_unit_id[{mode}]),.m_pkg_id(m_pkg_id[{mode}]),.m_fmt(m_fmt[{mode}]),.m_decor(m_decor[{mode}]),.m_anchors(m_anchors[{mode}]),.m_deltas(m_deltas[{mode}]),.m_size_bytes(m_size[{mode}]),.m_error(m_error[{mode}])
 );\n'''

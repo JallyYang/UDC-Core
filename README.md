@@ -45,4 +45,6 @@ bash tests/run_uddc_parser.sh
 ```
 
 回归覆盖与逐拍性能条件见 [tests/README.md](tests/README.md)，
-RTL 编写规范见 [rtl/STYLE.md](rtl/STYLE.md)。
+RTL 编写规范见 [rtl/STYLE.md](rtl/STYLE.md)，Codex 仓库规则见 [AGENTS.md](AGENTS.md)。
+所有 RTL 禁止使用结构体；解析寄存点现为 INDEX、OFFSET、LAYOUT，包头与索引合并，
+位宽偏移计算拆成3+3两段。

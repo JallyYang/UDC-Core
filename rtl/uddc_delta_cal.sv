@@ -185,17 +185,14 @@ module uddc_delta_cal
     endfunction
     localparam int PIPELINE_STAGES = 4;
     localparam int LAST_STAGE = PIPELINE_STAGES - 1;
-    typedef struct packed {
-        logic [511:0] sums;
-        logic [3:0][31:0] anchors;
-        logic [3:0] format_id;
-        logic [UNIT_ID_W-1:0] unit_id;
-        logic package_id;
-        logic decor;
-        logic error;
-        logic [6:0] size_bytes;
-    } stage_data_t;
-    stage_data_t stage_data[0:LAST_STAGE];
+    logic [511:0] stage_sums [0:LAST_STAGE];
+    logic [3:0][31:0] stage_anchors [0:LAST_STAGE];
+    logic [3:0] stage_format_id [0:LAST_STAGE];
+    logic [UNIT_ID_W-1:0] stage_unit_id [0:LAST_STAGE];
+    logic stage_package_id [0:LAST_STAGE];
+    logic stage_decor [0:LAST_STAGE];
+    logic stage_error [0:LAST_STAGE];
+    logic [6:0] stage_size_bytes [0:LAST_STAGE];
     logic [LAST_STAGE:0] stage_valid;
     logic [LAST_STAGE:0] stage_ready;
     function automatic int ancestor(
@@ -243,20 +240,25 @@ module uddc_delta_cal
         return result;
     endfunction
 
-    function automatic logic [511:0] restore_anchors(input stage_data_t data);
+    function automatic logic [511:0] restore_anchors(
+        input logic [511:0] sums,
+        input logic [3:0][31:0] anchors,
+        input logic [3:0] format_id,
+        input logic error
+    );
         logic [511:0] result;
         int w;
         int n;
         int pb;
         result = '0;
         for (int c = 0; c < 4; c++) begin
-            w = width_of(data.format_id, c);
-            n = samples(data.format_id, c);
-            pb = plane_base(data.format_id, c);
+            w = width_of(format_id, c);
+            n = samples(format_id, c);
+            pb = plane_base(format_id, c);
             for (int k = 0; k < 64; k++) begin
-                if (k < n && !data.error)
+                if (k < n && !error)
                     result = set_sample(result, pb + k*w, w,
-                        sample_at(data.sums, pb + k*w, w) + data.anchors[c]);
+                        sample_at(sums, pb + k*w, w) + anchors[c]);
             end
         end
         return result;
@@ -264,41 +266,48 @@ module uddc_delta_cal
 
     assign s_ready = stage_ready[0];
     assign m_valid = stage_valid[LAST_STAGE];
-    assign m_unit_id = stage_data[LAST_STAGE].unit_id;
-    assign m_pkg_id = stage_data[LAST_STAGE].package_id;
-    assign m_fmt = stage_data[LAST_STAGE].format_id;
-    assign m_decor = stage_data[LAST_STAGE].decor;
-    assign m_size_bytes = stage_data[LAST_STAGE].size_bytes;
-    assign m_error = stage_data[LAST_STAGE].error;
-    assign m_planes = restore_anchors(stage_data[LAST_STAGE]);
+    assign m_unit_id = stage_unit_id[LAST_STAGE];
+    assign m_pkg_id = stage_package_id[LAST_STAGE];
+    assign m_fmt = stage_format_id[LAST_STAGE];
+    assign m_decor = stage_decor[LAST_STAGE];
+    assign m_size_bytes = stage_size_bytes[LAST_STAGE];
+    assign m_error = stage_error[LAST_STAGE];
+    assign m_planes = restore_anchors(stage_sums[LAST_STAGE],stage_anchors[LAST_STAGE],stage_format_id[LAST_STAGE],stage_error[LAST_STAGE]);
 
     // The first register performs distance-1 accumulation directly. There is
     // no separate register that only copies input deltas before computation.
     for (genvar stage_index = 0; stage_index < PIPELINE_STAGES; stage_index++) begin : prefix_stage
-        stage_data_t next_data;
+        logic [511:0] next_sums;
+        logic [3:0][31:0] next_anchors;
+        logic [3:0] next_format_id;
+        logic [UNIT_ID_W-1:0] next_unit_id;
+        logic next_package_id;
+        logic next_decor;
+        logic next_error;
+        logic [6:0] next_size_bytes;
         logic input_valid;
         if (stage_index == 0) begin : first_stage
             assign input_valid = s_valid;
-            assign next_data.sums = accumulate_deltas(s_deltas, s_fmt, s_error, 1);
-            assign next_data.anchors = s_error ? '0 : s_anchors;
-            assign next_data.format_id = s_error ? '0 : s_fmt;
-            assign next_data.unit_id = s_unit_id;
-            assign next_data.package_id = s_pkg_id;
-            assign next_data.decor = s_decor;
-            assign next_data.error = s_error;
-            assign next_data.size_bytes = s_size_bytes;
+            assign next_sums = accumulate_deltas(s_deltas, s_fmt, s_error, 1);
+            assign next_anchors = s_error ? '0 : s_anchors;
+            assign next_format_id = s_error ? '0 : s_fmt;
+            assign next_unit_id = s_unit_id;
+            assign next_package_id = s_pkg_id;
+            assign next_decor = s_decor;
+            assign next_error = s_error;
+            assign next_size_bytes = s_size_bytes;
         end else begin : following_stage
             assign input_valid = stage_valid[stage_index-1];
-            assign next_data.sums = accumulate_deltas(stage_data[stage_index-1].sums,
-                    stage_data[stage_index-1].format_id,
-                    stage_data[stage_index-1].error, 1 << stage_index);
-            assign next_data.anchors = stage_data[stage_index-1].anchors;
-            assign next_data.format_id = stage_data[stage_index-1].format_id;
-            assign next_data.unit_id = stage_data[stage_index-1].unit_id;
-            assign next_data.package_id = stage_data[stage_index-1].package_id;
-            assign next_data.decor = stage_data[stage_index-1].decor;
-            assign next_data.error = stage_data[stage_index-1].error;
-            assign next_data.size_bytes = stage_data[stage_index-1].size_bytes;
+            assign next_sums = accumulate_deltas(stage_sums[stage_index-1],
+                    stage_format_id[stage_index-1],
+                    stage_error[stage_index-1], 1 << stage_index);
+            assign next_anchors = stage_anchors[stage_index-1];
+            assign next_format_id = stage_format_id[stage_index-1];
+            assign next_unit_id = stage_unit_id[stage_index-1];
+            assign next_package_id = stage_package_id[stage_index-1];
+            assign next_decor = stage_decor[stage_index-1];
+            assign next_error = stage_error[stage_index-1];
+            assign next_size_bytes = stage_size_bytes[stage_index-1];
         end
         if (stage_index == LAST_STAGE) begin : last_ready
             assign stage_ready[stage_index] = !stage_valid[stage_index] || m_ready;
@@ -314,42 +323,42 @@ module uddc_delta_cal
         end
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].sums <= next_data.sums;
+                stage_sums[stage_index] <= next_sums;
         end
 
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].anchors <= next_data.anchors;
+                stage_anchors[stage_index] <= next_anchors;
         end
 
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].format_id <= next_data.format_id;
+                stage_format_id[stage_index] <= next_format_id;
         end
 
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].unit_id <= next_data.unit_id;
+                stage_unit_id[stage_index] <= next_unit_id;
         end
 
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].package_id <= next_data.package_id;
+                stage_package_id[stage_index] <= next_package_id;
         end
 
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].decor <= next_data.decor;
+                stage_decor[stage_index] <= next_decor;
         end
 
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].error <= next_data.error;
+                stage_error[stage_index] <= next_error;
         end
 
         always_ff @(posedge clk) begin
             if (rst_n && stage_ready[stage_index] && input_valid)
-                stage_data[stage_index].size_bytes <= next_data.size_bytes;
+                stage_size_bytes[stage_index] <= next_size_bytes;
         end
 
     end

@@ -315,32 +315,24 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
         end
         return r;
     endfunction
-    typedef struct packed {
-        logic [511:0] planes;
-        logic [511:0] deltas;
-        logic [3:0][31:0] anchors;
-        logic [31:0][4:0] pairs;
-        logic [3:0][4:0] global_indexes;
-    } partial_t;
-    typedef struct packed {
-        logic [511:0] deltas;
-        logic [3:0][31:0] anchors;
-        logic [31:0][4:0] indexes;
-        logic [3:0] strategy;
-        logic [9:0] length;
-        logic decor;
-        logic [3:0] fmt;
-        logic package_id;
-        logic [UNIT_ID_W-1:0] unit_id;
-    } candidate_t;
-    function automatic partial_t analyze_half(
+    localparam int unsigned PARTIAL_BITS = 512+512+128+160+20;
+    localparam int unsigned CANDIDATE_BITS = 512+128+160+4+10+1+4+1+UNIT_ID_W;
+    function automatic logic [PARTIAL_BITS-1:0] analyze_half(
         input logic [255:0] data,
         input logic [3:0] fmt,
         input logic second_half,
         input logic decor,
-        input partial_t previous
+        input logic [511:0] previous_planes,
+        input logic [511:0] previous_deltas,
+        input logic [3:0][31:0] previous_anchors,
+        input logic [31:0][4:0] previous_pairs,
+        input logic [3:0][4:0] previous_global_indexes
     );
-        partial_t result;
+        logic [511:0] result_planes;
+        logic [511:0] result_deltas;
+        logic [3:0][31:0] result_anchors;
+        logic [31:0][4:0] result_pairs;
+        logic [3:0][4:0] result_global_indexes;
         logic [511:0] incoming;
         logic [511:0] planes;
         logic [31:0] residual;
@@ -353,12 +345,16 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
         int base;
         int pair_position;
         int index_value;
-        result = second_half ? previous : '0;
+        result_planes = second_half ? previous_planes : '0;
+        result_deltas = second_half ? previous_deltas : '0;
+        result_anchors = second_half ? previous_anchors : '0;
+        result_pairs = second_half ? previous_pairs : '0;
+        result_global_indexes = second_half ? previous_global_indexes : '0;
         incoming = transpose_planes(second_half ? {data,256'b0} : {256'b0,data},fmt,1'b0);
-        planes = (second_half ? previous.planes : 512'b0) | incoming;
+        planes = (second_half ? previous_planes : 512'b0) | incoming;
         // Retain original planes for boundary prediction; transform the complete
         // available pixel components before selecting this half's samples.
-        result.planes = planes;
+        result_planes = planes;
         if (decor) planes = color_transform(planes,fmt,1'b0);
         pixel_width = 0;
         for (int c=0;c<4;c++) pixel_width += width_of(fmt,c);
@@ -370,30 +366,42 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
             for (int k=0;k<64;k++) begin
                 position = fmt == 14 ? (3*k+c)*32 : k*pixel_width+channel_offset;
                 if (k<count_samples && (position>=256)==second_half) begin
-                    if (k==0) result.anchors[c] = sample_at(planes,base,width);
+                    if (k==0) result_anchors[c] = sample_at(planes,base,width);
                     else begin
                         parent = fmt==14 || k%row_width(fmt)!=0 ? k-1 : k-row_width(fmt);
                         residual = (sample_at(planes,base+k*width,width)-sample_at(planes,base+parent*width,width)) & mask_w(width);
-                        result.deltas = set_sample(result.deltas,base+k*width,width,residual);
+                        result_deltas = set_sample(result_deltas,base+k*width,width,residual);
                         index_value = min_index(residual,width);
                         pair_position = pair_base(fmt,c)+(k-1)/2;
-                        if (index_value>int'(result.pairs[pair_position])) result.pairs[pair_position] = 5'(index_value);
-                        if (index_value>int'(result.global_indexes[c])) result.global_indexes[c] = 5'(index_value);
+                        if (index_value>int'(result_pairs[pair_position])) result_pairs[pair_position] = 5'(index_value);
+                        if (index_value>int'(result_global_indexes[c])) result_global_indexes[c] = 5'(index_value);
                     end
                 end
             end
             channel_offset += width;
         end
-        return result;
+        return {result_planes,result_deltas,result_anchors,result_pairs,result_global_indexes};
     endfunction
-    function automatic candidate_t select_strategy(
-        input partial_t partial,
+    function automatic logic [CANDIDATE_BITS-1:0] select_strategy(
+        input logic [511:0] partial_planes,
+        input logic [511:0] partial_deltas,
+        input logic [3:0][31:0] partial_anchors,
+        input logic [31:0][4:0] partial_pairs,
+        input logic [3:0][4:0] partial_global_indexes,
         input logic [3:0] fmt,
         input logic decor,
         input logic package_id,
         input logic [UNIT_ID_W-1:0] unit_id
     );
-        candidate_t result;
+        logic [511:0] result_deltas;
+        logic [3:0][31:0] result_anchors;
+        logic [31:0][4:0] result_indexes;
+        logic [3:0] result_strategy;
+        logic [9:0] result_length;
+        logic result_decor;
+        logic [3:0] result_fmt;
+        logic result_package_id;
+        logic [UNIT_ID_W-1:0] result_unit_id;
         int width;
         int count_samples;
         int pair_count;
@@ -401,13 +409,21 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
         int global_cost;
         int pair_cost;
         int total;
-        result = '0;
-        result.deltas = partial.deltas;
-        result.anchors = partial.anchors;
-        result.fmt = fmt;
-        result.decor = decor;
-        result.package_id = package_id;
-        result.unit_id = unit_id;
+        result_deltas = '0;
+        result_anchors = '0;
+        result_indexes = '0;
+        result_strategy = '0;
+        result_length = '0;
+        result_decor = '0;
+        result_fmt = '0;
+        result_package_id = '0;
+        result_unit_id = '0;
+        result_deltas = partial_deltas;
+        result_anchors = partial_anchors;
+        result_fmt = fmt;
+        result_decor = decor;
+        result_package_id = package_id;
+        result_unit_id = unit_id;
         total = 7;
         for (int c=0;c<4;c++) begin
             if (c<channels(fmt)) begin
@@ -415,66 +431,214 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
                 count_samples = samples(fmt,c);
                 pair_count = count_samples/2;
                 base = pair_base(fmt,c);
-                global_cost = 1+index_bits(width)+(count_samples-1)*decode_width(int'(partial.global_indexes[c]),width);
+                global_cost = 1+index_bits(width)+(count_samples-1)*decode_width(int'(partial_global_indexes[c]),width);
                 pair_cost = 1+pair_count*index_bits(width);
                 for (int p=0;p<32;p++) begin
-                    if (p<pair_count) pair_cost += decode_width(int'(partial.pairs[base+p]),width)*(2*p+2<count_samples ? 2 : 1);
+                    if (p<pair_count) pair_cost += decode_width(int'(partial_pairs[base+p]),width)*(2*p+2<count_samples ? 2 : 1);
                 end
                 if (pair_cost<global_cost) begin
-                    result.strategy[c] = 1;
+                    result_strategy[c] = 1;
                     for (int p=0;p<32;p++) begin
-                        if (p<pair_count) result.indexes[base+p] = partial.pairs[base+p];
+                        if (p<pair_count) result_indexes[base+p] = partial_pairs[base+p];
                     end
                     total += width+pair_cost;
                 end else begin
-                    result.indexes[base] = partial.global_indexes[c];
+                    result_indexes[base] = partial_global_indexes[c];
                     total += width+global_cost;
                 end
             end
         end
-        result.length = 10'(total);
-        return result;
+        result_length = 10'(total);
+        return {
+            result_deltas,
+            result_anchors,
+            result_indexes,
+            result_strategy,
+            result_length,
+            result_decor,
+            result_fmt,
+            result_package_id,
+            result_unit_id
+        };
     endfunction
     logic [1:0] input_beat;
     logic input_accepted;
-    partial_t original_partial;
-    partial_t color_partial;
-    partial_t original_next;
-    partial_t color_next;
-    candidate_t original_candidate;
-    candidate_t color_candidate;
-    candidate_t selected_candidate;
-    candidate_t candidates [0:1];
+    logic [511:0] original_partial_planes;
+    logic [511:0] original_partial_deltas;
+    logic [3:0][31:0] original_partial_anchors;
+    logic [31:0][4:0] original_partial_pairs;
+    logic [3:0][4:0] original_partial_global_indexes;
+    logic [511:0] color_partial_planes;
+    logic [511:0] color_partial_deltas;
+    logic [3:0][31:0] color_partial_anchors;
+    logic [31:0][4:0] color_partial_pairs;
+    logic [3:0][4:0] color_partial_global_indexes;
+    logic [511:0] original_next_planes;
+    logic [511:0] original_next_deltas;
+    logic [3:0][31:0] original_next_anchors;
+    logic [31:0][4:0] original_next_pairs;
+    logic [3:0][4:0] original_next_global_indexes;
+    logic [511:0] color_next_planes;
+    logic [511:0] color_next_deltas;
+    logic [3:0][31:0] color_next_anchors;
+    logic [31:0][4:0] color_next_pairs;
+    logic [3:0][4:0] color_next_global_indexes;
+    logic [511:0] original_candidate_deltas;
+    logic [3:0][31:0] original_candidate_anchors;
+    logic [31:0][4:0] original_candidate_indexes;
+    logic [3:0] original_candidate_strategy;
+    logic [9:0] original_candidate_length;
+    logic original_candidate_decor;
+    logic [3:0] original_candidate_fmt;
+    logic original_candidate_package_id;
+    logic [UNIT_ID_W-1:0] original_candidate_unit_id;
+    logic [511:0] color_candidate_deltas;
+    logic [3:0][31:0] color_candidate_anchors;
+    logic [31:0][4:0] color_candidate_indexes;
+    logic [3:0] color_candidate_strategy;
+    logic [9:0] color_candidate_length;
+    logic color_candidate_decor;
+    logic [3:0] color_candidate_fmt;
+    logic color_candidate_package_id;
+    logic [UNIT_ID_W-1:0] color_candidate_unit_id;
+    logic [511:0] selected_candidate_deltas;
+    logic [3:0][31:0] selected_candidate_anchors;
+    logic [31:0][4:0] selected_candidate_indexes;
+    logic [3:0] selected_candidate_strategy;
+    logic [9:0] selected_candidate_length;
+    logic selected_candidate_decor;
+    logic [3:0] selected_candidate_fmt;
+    logic selected_candidate_package_id;
+    logic [UNIT_ID_W-1:0] selected_candidate_unit_id;
+    logic [511:0] candidate_deltas [0:1];
+    logic [3:0][31:0] candidate_anchors [0:1];
+    logic [31:0][4:0] candidate_indexes [0:1];
+    logic [3:0] candidate_strategy [0:1];
+    logic [9:0] candidate_length [0:1];
+    logic candidate_decor [0:1];
+    logic [3:0] candidate_fmt [0:1];
+    logic candidate_package_id [0:1];
+    logic [UNIT_ID_W-1:0] candidate_unit_id [0:1];
     logic write_position;
     logic read_position;
     logic [1:0] queued;
     logic enqueue;
     logic dequeue;
     logic package_ready;
-    candidate_t head_candidate;
+    logic select_color_candidate;
     // A first half only updates local state; it needs no candidate FIFO entry.
     assign s_ready = (!s_enable || !input_beat[0] || queued<2);
     assign input_accepted = s_valid && s_ready;
-    assign original_next = analyze_half(s_data,s_fmt,input_beat[0],1'b0,original_partial);
-    assign color_next = analyze_half(s_data,s_fmt,input_beat[0],can_decor(s_fmt),color_partial);
-    assign original_candidate = select_strategy(original_next,s_fmt,1'b0,input_beat[1],s_unit_id);
-    assign color_candidate = select_strategy(color_next,s_fmt,1'b1,input_beat[1],s_unit_id);
-    assign selected_candidate = can_decor(s_fmt) && color_candidate.length<original_candidate.length ? color_candidate : original_candidate;
+    // Half-analysis result: planes, deltas, anchors, pairs, global_indexes.
+    assign {
+        original_next_planes,
+        original_next_deltas,
+        original_next_anchors,
+        original_next_pairs,
+        original_next_global_indexes
+    } =
+        analyze_half(s_data,s_fmt,input_beat[0],1'b0,original_partial_planes,original_partial_deltas,original_partial_anchors,original_partial_pairs,original_partial_global_indexes);
+    // Half-analysis result: planes, deltas, anchors, pairs, global_indexes.
+    assign {color_next_planes,color_next_deltas,color_next_anchors,color_next_pairs,color_next_global_indexes} =
+        analyze_half(s_data,s_fmt,input_beat[0],can_decor(s_fmt),color_partial_planes,color_partial_deltas,color_partial_anchors,color_partial_pairs,color_partial_global_indexes);
+    // Candidate result: deltas, anchors, indexes, strategy, length, decor, fmt, package_id, unit_id.
+    assign {
+        original_candidate_deltas,
+        original_candidate_anchors,
+        original_candidate_indexes,
+        original_candidate_strategy,
+        original_candidate_length,
+        original_candidate_decor,
+        original_candidate_fmt,
+        original_candidate_package_id,
+        original_candidate_unit_id
+    } =
+        select_strategy(original_next_planes,original_next_deltas,original_next_anchors,original_next_pairs,original_next_global_indexes,s_fmt,1'b0,input_beat[1],s_unit_id);
+    // Candidate result: deltas, anchors, indexes, strategy, length, decor, fmt, package_id, unit_id.
+    assign {
+        color_candidate_deltas,
+        color_candidate_anchors,
+        color_candidate_indexes,
+        color_candidate_strategy,
+        color_candidate_length,
+        color_candidate_decor,
+        color_candidate_fmt,
+        color_candidate_package_id,
+        color_candidate_unit_id
+    } =
+        select_strategy(color_next_planes,color_next_deltas,color_next_anchors,color_next_pairs,color_next_global_indexes,s_fmt,1'b1,input_beat[1],s_unit_id);
+    assign select_color_candidate = can_decor(s_fmt) && color_candidate_length<original_candidate_length;
+    assign selected_candidate_deltas = select_color_candidate ? color_candidate_deltas : original_candidate_deltas;
+    assign selected_candidate_anchors = select_color_candidate ? color_candidate_anchors : original_candidate_anchors;
+    assign selected_candidate_indexes = select_color_candidate ? color_candidate_indexes : original_candidate_indexes;
+    assign selected_candidate_strategy = select_color_candidate ? color_candidate_strategy : original_candidate_strategy;
+    assign selected_candidate_length = select_color_candidate ? color_candidate_length : original_candidate_length;
+    assign selected_candidate_decor = select_color_candidate ? color_candidate_decor : original_candidate_decor;
+    assign selected_candidate_fmt = select_color_candidate ? color_candidate_fmt : original_candidate_fmt;
+    assign selected_candidate_package_id = select_color_candidate ? color_candidate_package_id : original_candidate_package_id;
+    assign selected_candidate_unit_id = select_color_candidate ? color_candidate_unit_id : original_candidate_unit_id;
     assign enqueue = input_accepted && s_enable && input_beat[0];
     assign dequeue = queued!=0 && package_ready;
-    assign head_candidate = candidates[read_position];
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) input_beat <= 0;
         else if (input_accepted) input_beat <= input_beat+1'b1;
     end
     always_ff @(posedge clk) begin
-        if (rst_n && input_accepted && s_enable) original_partial <= original_next;
+        if (rst_n && input_accepted && s_enable) original_partial_planes <= original_next_planes;
     end
     always_ff @(posedge clk) begin
-        if (rst_n && input_accepted && s_enable) color_partial <= color_next;
+        if (rst_n && input_accepted && s_enable) original_partial_deltas <= original_next_deltas;
     end
     always_ff @(posedge clk) begin
-        if (rst_n && enqueue) candidates[write_position] <= selected_candidate;
+        if (rst_n && input_accepted && s_enable) original_partial_anchors <= original_next_anchors;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && input_accepted && s_enable) original_partial_pairs <= original_next_pairs;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && input_accepted && s_enable) original_partial_global_indexes <= original_next_global_indexes;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && input_accepted && s_enable) color_partial_planes <= color_next_planes;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && input_accepted && s_enable) color_partial_deltas <= color_next_deltas;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && input_accepted && s_enable) color_partial_anchors <= color_next_anchors;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && input_accepted && s_enable) color_partial_pairs <= color_next_pairs;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && input_accepted && s_enable) color_partial_global_indexes <= color_next_global_indexes;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_deltas[write_position] <= selected_candidate_deltas;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_anchors[write_position] <= selected_candidate_anchors;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_indexes[write_position] <= selected_candidate_indexes;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_strategy[write_position] <= selected_candidate_strategy;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_length[write_position] <= selected_candidate_length;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_decor[write_position] <= selected_candidate_decor;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_fmt[write_position] <= selected_candidate_fmt;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_package_id[write_position] <= selected_candidate_package_id;
+    end
+    always_ff @(posedge clk) begin
+        if (rst_n && enqueue) candidate_unit_id[write_position] <= selected_candidate_unit_id;
     end
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) write_position <= 0;
@@ -495,11 +659,11 @@ module udc_enc_stream #(parameter int unsigned UNIT_ID_W = 4) (
     udc_enc_package #(.UNIT_ID_W(UNIT_ID_W)) u_package (
         .clk(clk), .rst_n(rst_n),
         .s_valid(queued!=0), .s_ready(package_ready),
-        .s_unit_id(head_candidate.unit_id), .s_pkg_id(head_candidate.package_id),
-        .s_fmt(head_candidate.fmt), .s_decor(head_candidate.decor),
-        .s_anchors(head_candidate.anchors), .s_deltas(head_candidate.deltas),
-        .s_strategy(head_candidate.strategy), .s_indexes(head_candidate.indexes),
-        .s_logical_bits(head_candidate.length),
+        .s_unit_id(candidate_unit_id[read_position]), .s_pkg_id(candidate_package_id[read_position]),
+        .s_fmt(candidate_fmt[read_position]), .s_decor(candidate_decor[read_position]),
+        .s_anchors(candidate_anchors[read_position]), .s_deltas(candidate_deltas[read_position]),
+        .s_strategy(candidate_strategy[read_position]), .s_indexes(candidate_indexes[read_position]),
+        .s_logical_bits(candidate_length[read_position]),
         .m_valid(m_valid), .m_ready(m_ready), .m_unit_id(m_unit_id), .m_pkg_id(m_pkg_id),
         .m_fmt(m_fmt), .m_size_bytes(m_size_bytes), .m_bits(m_bits), .m_error(m_error)
     );
