@@ -17,7 +17,7 @@ jobs:
       UDDC_PARSE_INDEX_REG: ${{ matrix.registers }}
       UDDC_PARSE_LAYOUT_REG: ${{ matrix.registers }}
       UDDC_TEST_JOBS: 2
-      UDDC_TEST_BUILD_DIR: ${{ runner.temp }}/uddc
+      UDDC_TEST_BUILD_DIR: /tmp/uddc-regression
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
