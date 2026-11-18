@@ -1,0 +1,40 @@
+name: UDDC slot regression
+on:
+  push:
+    branches: [codex/uddc-slot-regression]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  decoder:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        registers: [1, 0]
+    env:
+      UDDC_PARSE_OFFSET_REG: ${{ matrix.registers }}
+      UDDC_PARSE_INDEX_REG: ${{ matrix.registers }}
+      UDDC_PARSE_LAYOUT_REG: ${{ matrix.registers }}
+      UDDC_TEST_JOBS: 2
+      UDDC_TEST_BUILD_DIR: ${{ runner.temp }}/uddc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pyslang==12.1.0 verilator==5.48.0
+      - run: python tests/check_rtl_style.py
+      - name: Run decoder regression
+        shell: bash
+        run: |
+          export VERILATOR_ROOT="$(python -c 'import pathlib, verilator; print(pathlib.Path(verilator.__file__).parent)')"
+          export CXXFLAGS="-std=c++20 -DVL_TIME_CONTEXT"
+          verilator() {
+            "$VERILATOR_ROOT/bin/verilator" --unroll-count 1 --output-split 8000 --output-split-cfuncs 500 "$@"
+          }
+          export -f verilator
+          bash tests/run_uddc.sh
+      - name: Show compiler diagnostics on failure
+        if: failure()
+        run: tail -n 60 "$UDDC_TEST_BUILD_DIR"/*-build.log || true
