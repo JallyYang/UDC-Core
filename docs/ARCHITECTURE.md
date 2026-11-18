@@ -17,9 +17,9 @@
 | pkg0 / pkg1 | DIC 的两个压缩包，各恢复出 512bit / 64B |
 | slot / unit_id | unit 的缓存位置及其在各级流水线中的关联编号 |
 | beat | 外部一次 256bit / 32B 传输；按成功握手计数 |
-| `UNIT_ID_W` / `UNIT_SLOTS` | 编号宽度 / 在途 unit 容量，默认分别为 4 / 8 |
+| `UNIT_ID_W` / `UNIT_SLOTS` | 编号宽度 / 每侧缓存槽位数，默认分别为 4 / 8；解码输入缓存与下游编号独立占用 |
 | `valid && ready` | 一次传输被接收，本文记作“握手” |
-| `retire_valid` | unit 最后一拍最终输出握手，释放其 slot |
+| `retire_valid` | unit 最后一拍最终输出握手；解码释放下游编号，输入缓存已在分发结束时释放 |
 
 上下游及所有子模块使用同一时钟和低有效复位 `rst_n`。复位期间不进行有效传输，
 即使 `valid && ready` 为高也不计为握手；组合逻辑不直接用复位信号屏蔽接口。
@@ -110,7 +110,7 @@ flowchart LR
 | `udc_clear_check` | 10bit 累积匹配位；2 项响应缓冲 | 每拍取交集；最后一拍产生 hit/index/unit_id |
 | 编码 `udc_enc_pk` 顺序 FIFO | `UNIT_SLOTS × UNIT_ID_W`，默认 32bit 编号存储 | 上下文握手入队，最终输出 LAST 握手出队 |
 | 编码 `udc_enc_pk` 数据缓存 | 每 slot 原始 1024bit、两份 544bit 压缩包，以及尺寸、格式、限制、done/error 和 Clear 元数据 | 按 unit_id 收结果，只检查并输出队首 |
-| 解码 `uddc_dec_split.data_mem` | `UNIT_SLOTS × 1024bit`，默认 1KiB | 按拍写入；DIC 只使用低 768bit，原始模式使用全部 1024bit |
+| 解码 `uddc_dec_split.data_mem` | `UNIT_SLOTS × 1024bit`，默认 1KiB | 按拍写入，分发结束后释放；DIC 只使用低 768bit，原始模式使用全部 1024bit |
 | 解码请求缓冲 `pkg_*` | 2 项，768bit 区域及 unit_id/pkg_id/CBMD/有效字节数/final | 保存独立快照；队首在反压时保持，满后停止入队 |
 | 解码解析器 | 三个可选两项解析缓冲、一个固定两项结果缓冲及每 tag 的 `result_sent` | 快照独立流水；第一份成功结果交付一次，最终快照清理 tag |
 | 解码 `uddc_package_out` 顺序 FIFO | `UNIT_SLOTS × UNIT_ID_W` | 上下文握手入队，第四拍输出握手出队 |
@@ -122,13 +122,19 @@ flowchart LR
 `count` 在同时入队/出队时不变。FIFO 满时，即使本拍出队，当前实现也不会提前放行入队。
 队首尚未就绪时，后面的已完成 unit 不能越过队首。
 
-输入侧 `allocated[id]` 在第一拍置位，在 retire 时清除。`wr_slot` 在输入收齐后前进，
-`dispatch_slot` 在请求调度结束后前进，这两者都不等于释放 slot。
-解码侧 `started[id]` 表示上下文尚待交付，`complete[id]` 表示输入已收齐且调度未结束。
+编码输入侧 `allocated[id]` 在第一拍置位，在 retire 时清除。
+解码输入侧 `input_allocated[id]` 在首拍置位，在 `unit_dispatch_finished` 时清除；
+该事件包括原始 context 交付、Clear 请求握手、或 pkg1 调度结束，同时推进 `dispatch_slot`。
+`unit_live[id]` 则在 context 握手时置位，只在最终输出 retire 时清除，阻止同编号新 context
+过早进入下游。`started[id]` 表示输入 context 尚待交付，`complete[id]` 表示输入已收齐且调度未结束。
+`wr_slot` 在输入收齐后前进，不代表输入缓存已释放。
 
-两端写指针都按环形顺序分配，不搜索任意空闲项。编码输入仍等待下一拍复用；
-解码输入允许在本 slot 的 retire 同拍接收新 unit 首拍，新分配优先于清除占用位。
-这里的输入 slot 复用不等于输出顺序 FIFO 满时允许同拍入队。
+两端写指针都按环形顺序分配，不搜索任意空闲项。解码输入 `s_ready` 只取决于
+`collecting || !input_allocated[wr_slot]`，不再以 retire 放行。输入缓存释放后下一拍可复用，
+不组合旁路同拍分发释放。同编号旧 unit 可以仍在下游，新 unit 先缓存在输入侧，等待旧 unit
+retire 后再交 context；旧 retire 不清除新输入的占用位。默认两侧各 8 项，最多有 8 个下游
+活跃 unit 和另外 8 个缓冲 unit；实际接收能力还取决于输入拍数和流水反压。
+输入缓存复用不等于输出顺序 FIFO 满时允许同拍入队。
 默认 8 slot 是容量配置，不是 DIC 算法要求；4 slot 的解码边界与混合流已做定向验证，
 但不构成任意模式切换都无空拍的保证。
 
@@ -143,7 +149,7 @@ flowchart LR
 | 编码 CTX | 等待四拍收齐和 Clear 响应，再提交上下文 | Clear 命中或 limit=0：保持 CTX 并前进到下一个 unit；否则转 PKG0 |
 | 编码 PKG0 | 兼容接口发送原始低 512bit，核心不通过此接口编码 | 请求握手后转 PKG1 |
 | 编码 PKG1 | 兼容接口发送原始高 512bit | 请求握手后回 CTX，调度指针前进 |
-| 解码 CTX | 提交上下文；DIC 可用第一拍旁路，原始模式必须收齐 | 原始：保持 CTX 并前进；流式DIC首快照已final：转PKG1；其他DIC：转PKG0；Clear：转CLEAR |
+| 解码 CTX | 等同编号旧 unit 退休后提交上下文；DIC 可用第一拍旁路，原始模式必须收齐 | 原始：保持 CTX 并前进；流式DIC首快照已final：转PKG1；其他DIC：转PKG0；Clear：转CLEAR |
 | 解码 PKG0 | 随有效字节增加连续送快照 | 流水模式：最终快照进入本地请求队列后转 PKG1；全关：有效响应 done=1 后转 PKG1 |
 | 解码 PKG1 | 完整区域反向布局的 pkg1 | 流水模式：最终请求入队后回 CTX；全关：有效响应 done=1 后回 CTX |
 | 解码 CLEAR | 发送模板索引 | 请求握手后回 CTX，调度指针前进 |
@@ -244,7 +250,7 @@ split 的旧 64B `pkg_*` 接口在核心中 ready 恒为 1，其数据不进入�
 | dic_dec → package_out | `result_*`：unit_id、pkg_id、fmt[3:0]、raw[511:0]、size_bytes[6:0]、error | 恢复的半个 unit |
 | split → clear_recon | `clear_req_*`：unit_id、index[3:0] | 选择 0～9 号模板 |
 | clear_recon → package_out | `clear_rsp_*`：unit_id、raw[1023:0] | 16B 模板重复八次的结果 |
-| package_out → split | `retire_valid, retire_unit_id`，无 ready | 第四拍原始输出握手，释放 slot |
+| package_out → split | `retire_valid, retire_unit_id`，无 ready | 第四拍原始输出握手，仅释放下游编号；不影响已复用的输入缓存 |
 
 请求握手只表示快照被接收；响应可以在若干拍后出现，数据不足也会响应 done=0。
 成功或最终失败的响应 done=1，不代表差分恢复或最终输出结束。
@@ -294,7 +300,7 @@ split 的旧 64B `pkg_*` 接口在核心中 ready 恒为 1，其数据不进入�
 | T0 | 接收32B、提交 context、寄存首份快照 | — |
 | T1 | 接收64B、更新快照 | 32B 包头与索引解析 |
 | T2 | 接收96B、最终快照入队后调度转PKG1 | 32B 偏移前三层；64B 包头与索引 |
-| T3 | 接受pkg0最终请求；pkg1入队后调度转CTX | 32B 后三层及位置；64B 前三层；96B 包头与索引 |
+| T3 | 接受pkg0最终请求；pkg1入队后调度转CTX并释放输入缓存 | 32B 后三层及位置；64B 前三层；96B 包头与索引 |
 | T4 | 接受 pkg1 请求，可调度下一 unit | 32B 提取或不足；64B 后三层及位置；96B 前三层；pkg1 包头与索引 |
 | T5 | — | 64B 提取；96B 后三层及位置；pkg1 前三层 |
 | T6 | — | 96B 提取；pkg1 后三层及位置；pkg0 可能已进入差分累加 |
@@ -302,7 +308,7 @@ split 的旧 64B `pkg_*` 接口在核心中 ready 恒为 1，其数据不进入�
 | T8～T11 | — | pkg1 距离1、2、4、8累加；pkg0 并行恢复，最晚T12写缓存 |
 | T12 | — | pkg1 加锚点、颜色恢复、像素重排后寄存 |
 | T13 | — | pkg1 写缓存并同拍输出首拍 |
-| T14～T16 | — | 输出其余三拍，T16 retire；输入 slot 可同拍重新分配 |
+| T14～T16 | — | 输出其余三拍，T16 retire 释放下游编号；同编号新 context 最早 T17 交付 |
 
 pkg0 第一份能成功的快照仅交付一次，后续重复被抑制；最终快照清除该包去重位。
 完整表及 pkg0 在不同字节数下的交付时间见 [解析流水说明](UDDC_PARSER_PIPELINE.md)。
@@ -432,8 +438,8 @@ python3 tests/check_rtl_style.py
 依赖 Python 3、Verilator、C++20 编译器；风格检查另需 `pyslang==12.1.0`。
 构建目录在 checkout 外，可设置 `UDDC_TEST_BUILD_DIR` 复用构建，`UDDC_TEST_JOBS` 控制并行数。
 
-默认四 slot 回归含 908 个随机/格式覆盖 unit，以及 1666 个定向延迟/连续性 unit，
-合计 2574 个 unit、10296 拍输出。另有调度器独立测试和输出转发独立测试。
+默认四 slot 回归含 908 个随机/格式覆盖 unit，以及 1698 个定向延迟/连续性/预取 unit，
+合计 2606 个 unit、10424 拍输出。另有调度器独立测试和输出转发独立测试。
 覆盖数据、错误、顺序、SOP/LAST、反压稳定性，以及指定工作负载的首拍周期和空拍数量。
 原始/Clear 单独启动的 T5/T4 延迟亦可用同一 decoder 测试程序检查。
 
@@ -443,9 +449,9 @@ python3 tests/check_rtl_style.py
 | --- | --- | --- |
 | UDC 编码比对 | 4 slot，512 个混合 unit，与 b732757 比较 | 数据、模式、顺序、反压、tag/slot 重用 |
 | UDC 连续输入 | 同一4 slot 模型，18组×128 unit | T9/T7 首拍，每组512拍输入无停顿，T511 接收最后一拍 |
-| UDDC 核心全开/全关 | 4 slot，每种配置2574 unit | 上述延迟、连续 DIC、错误输出、顺序与稳定性 |
+| UDDC 核心全开/全关 | 4 slot，每种配置2606 unit | 上述延迟、连续 DIC、错误输出、顺序与稳定性；输出停顿256拍时预取8个完整原始unit |
 | UDDC 解析器八组合 | 每种3673快照，参考66e10f3解析器 | 响应、载荷、去重、final清理、tag重用、独立反压 |
-| slot/请求调度 | 独立模块，流水模式不提供响应 | 首拍启动、连续前缀、最终请求切包、反压稳定性、同拍回收复用 |
+| slot/请求调度 | 独立模块，流水模式不提供响应；12组生命周期场景 | 首拍启动、连续前缀、最终请求切包、反压稳定性、三代输入复用、live编号阻塞及旧retire隔离 |
 | 中途复位 | 编码12种、解码9种场景 | 丢弃在途数据，复位后新 unit 数据/帧正确，无多余输出 |
 
 旧基线曾单独检查过包头0/15以及77B/14B包组合。当前尺寸校验代码仍无单包68B上限，

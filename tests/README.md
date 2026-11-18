@@ -49,7 +49,7 @@ bash tests/run_uddc_parser.sh
 
 `uddc_generate.py` 生成908个确定性 unit，覆盖全部14种格式、全部CBMD模式、
 符号差分、颜色恢复、保留位错误及两种包方向的 >64B 包。
-`uddc_latency_vectors.py` 再生成1666个定向 unit，合计2574个、10296拍输出。
+`uddc_latency_vectors.py` 再生成1698个定向 unit，合计2606个、10424拍输出。
 `uddc_decode.cpp` 检查数据、error、SOP/LAST、顺序及反压稳定性。
 参考生成器描述字段布局与预测关系，是回归模型，不是独立规范认证。
 
@@ -81,9 +81,17 @@ bash tests/run_uddc_parser.sh
 独立的随机输出反压。全关配置不启用流式去重，与旧独立快照接口一致。
 参考源码由 `uddc_parser_reference.py` 提取到构建目录，需本地保留该提交历史。
 
-`uddc_dispatch.cpp` 还检查输入转发、首拍 context 旁路、请求停顿稳定性，以及
-slot 回收与新分配同拍发生时，新分配优先。输入slot复用和输出FIFO入队是两个不同接口；
-当前输出FIFO满时仍不旁路同拍出队。
+`uddc_dispatch.cpp` 还检查输入转发、首拍 context 旁路和请求停顿稳定性。
+生命周期定向测试在原始、32B/64B/96B压缩、Clear模板0/9共6种模式下，各检查流式和
+响应驱动两种配置，覆盖三代环形复用。下游context ready保持为1，验证split自身阻止live编号
+重复交付；第一代仍活跃时输入已缓存第二代，旧retire不能释放或放行覆盖第二代。
+原始context和解析快照逐字比对，Clear编号和请求顺序也逐项检查。
+
+输入缓存分发结束后下一拍可复用，下游编号在最终输出后退休。`raw_prefetch.txt` 包含32个
+不同原始unit，核心测试将输出停顿256拍，要求先接收 `2 * UNIT_SLOTS` 个完整unit，
+再恢复输出并校验数据、顺序和停顿稳定性。四slot配置对应8个unit，默认八slot配置对应16个。
+测试程序的 `--stall-output=N` 和 `--expect-prefetch=N` 可独立控制这项检查。
+输入缓存复用和输出FIFO入队是两个不同接口；当前输出FIFO满时仍不旁路同拍出队。
 
 ## 解码周期与连续性
 
@@ -104,7 +112,7 @@ slot 回收与新分配同拍发生时，新分配优先。输入slot复用和�
 独立 `uddc_correlation` 的默认输出寄存选项仍为1。
 
 `uddc_output_forward.cpp` 检查两种包到达顺序、最后包同拍转发首拍、停顿后由缓存保持、
-错误包、格式不一致、非法尺寸和最终slot释放。最后一个包不需要先写缓存再等一拍输出。
+错误包、格式不一致、非法尺寸和最终编号退休。最后一个包不需要先写缓存再等一拍输出。
 
 目前没有统一预填充机制，连续DIC测试通过不表示任意模式切换也无空拍。
 这些结果是周期行为，不是Fmax或面积结论；真实TSMC7、1.5GHz仍需工艺库和STA。

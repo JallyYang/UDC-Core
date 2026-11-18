@@ -44,6 +44,8 @@ python3 tests/uddc_generate.py "$build_dir/vectors.txt"
 decoder="$build_dir/obj$slots/Vuddc_dec_core"
 "$decoder" "$build_dir/vectors.txt"
 python3 -B tests/uddc_latency_vectors.py "$build_dir/latency"
+"$decoder" "$build_dir/latency/raw_prefetch.txt" --continuous \
+    --stall-output=256 --expect-prefetch="$((2*slots))"
 # Registered mode sends longer prefixes while older ones are still in flight.
 if ((extra_stages == 3)); then
     for name in boundary reverse_boundary mixed wide bad_header; do

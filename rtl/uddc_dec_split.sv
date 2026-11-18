@@ -56,7 +56,8 @@ module uddc_dec_split
             end
         endcase
     endfunction
-    logic [UNIT_SLOTS-1:0] allocated;
+    logic [UNIT_SLOTS-1:0] input_allocated;
+    logic [UNIT_SLOTS-1:0] unit_live;
     logic [UNIT_SLOTS-1:0] complete;
     logic [UNIT_SLOTS-1:0] started;
     logic [1023:0] data_mem [0:UNIT_SLOTS-1];
@@ -77,6 +78,7 @@ module uddc_dec_split
     logic context_accepted;
     logic package_request_accepted;
     logic package_dispatch_finished;
+    logic unit_dispatch_finished;
     logic parse_waiting;
     logic clear_request_accepted;
     logic bypass_ctx;
@@ -141,15 +143,16 @@ module uddc_dec_split
     end
 
     // FSM part 3: combinational outputs, one target per process.
-    assign s_ready = collecting || !allocated[wr_slot] ||
-        (retire_valid && int'(retire_unit_id) == wr_slot);
+    // Input storage is independent of the downstream lifetime of its ID.
+    // A dispatch release becomes available on the following cycle.
+    assign s_ready = collecting || !input_allocated[wr_slot];
     assign input_accepted = s_valid && s_ready;
     // A compressed first beat can allocate its output context and parsing
     // snapshot together. Buffered units still dispatch strictly in order.
     assign bypass_ctx = input_accepted && !collecting && wr_slot == dispatch_slot &&
                         !started[dispatch_slot] && s_cbmd >= 1 && s_cbmd <= 5;
     always_comb begin
-        ctx_valid = dispatch_state == DISPATCH_CTX &&
+        ctx_valid = dispatch_state == DISPATCH_CTX && !unit_live[dispatch_slot] &&
                        (bypass_ctx || (started[dispatch_slot] &&
                         (cbmd_mem[dispatch_slot] != 0 || complete[dispatch_slot])));
     end
@@ -170,6 +173,9 @@ module uddc_dec_split
     assign clear_unit_id = UNIT_ID_W'(dispatch_slot);
     assign clear_index = cbmd_mem[dispatch_slot] - 4'd6;
     assign clear_request_accepted = clear_valid && clear_ready;
+    assign unit_dispatch_finished = (context_accepted && ctx_cbmd == 0) ||
+        (package_dispatch_finished && dispatch_state == DISPATCH_PKG1) ||
+        clear_request_accepted;
 
     always_comb begin
         load_snapshot = 1'b0;
@@ -237,24 +243,34 @@ module uddc_dec_split
     for (genvar slot_index = 0; slot_index < UNIT_SLOTS; slot_index++) begin : input_completion
         always_ff @(posedge clk or negedge rst_n) begin
             if (!rst_n) complete[slot_index] <= 1'b0;
-            else if ((context_accepted && ctx_cbmd == 0 && dispatch_slot == slot_index) ||
-                     (package_dispatch_finished && dispatch_state == DISPATCH_PKG1 && dispatch_slot == slot_index) ||
-                     (clear_request_accepted && dispatch_slot == slot_index))
+            else if (unit_dispatch_finished && dispatch_slot == slot_index)
                 complete[slot_index] <= 1'b0;
             else if (input_accepted && s_last && wr_slot == slot_index)
                 complete[slot_index] <= 1'b1;
         end
     end
 
-    // Output uses its own cache, so a retiring input slot can accept a new
-    // first beat on the same edge. Reallocation takes explicit priority.
+    // Dispatch has copied all fields into downstream storage. Retiring an
+    // older unit with this ID must not release a newly buffered input unit.
     for (genvar slot_index = 0; slot_index < UNIT_SLOTS; slot_index++) begin : input_slot_allocation
         always_ff @(posedge clk or negedge rst_n) begin
-            if (!rst_n) allocated[slot_index] <= 1'b0;
+            if (!rst_n) input_allocated[slot_index] <= 1'b0;
             else if (input_accepted && !collecting && wr_slot == slot_index)
-                allocated[slot_index] <= 1'b1;
+                input_allocated[slot_index] <= 1'b1;
+            else if (unit_dispatch_finished && dispatch_slot == slot_index)
+                input_allocated[slot_index] <= 1'b0;
+        end
+    end
+
+    // A reused input slot may wait behind the older unit with the same ID.
+    // Only retirement releases the ID for another downstream context.
+    for (genvar slot_index = 0; slot_index < UNIT_SLOTS; slot_index++) begin : unit_id_lifetime
+        always_ff @(posedge clk or negedge rst_n) begin
+            if (!rst_n) unit_live[slot_index] <= 1'b0;
+            else if (context_accepted && dispatch_slot == slot_index)
+                unit_live[slot_index] <= 1'b1;
             else if (retire_valid && int'(retire_unit_id) == slot_index)
-                allocated[slot_index] <= 1'b0;
+                unit_live[slot_index] <= 1'b0;
         end
     end
 
@@ -310,9 +326,7 @@ module uddc_dec_split
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) dispatch_slot <= 0;
-        else if ((context_accepted && ctx_cbmd == 0) ||
-                 (package_dispatch_finished && dispatch_state == DISPATCH_PKG1) ||
-                 clear_request_accepted)
+        else if (unit_dispatch_finished)
             dispatch_slot <= advance(dispatch_slot);
     end
 

@@ -72,6 +72,8 @@ cases = {
     'bad_header': [bad_header],
     'mixed': mixed,
     'clear_then_boundary': [clear] + [boundary]*127,
+    'raw_prefetch': [(0, value, value, 0)
+                     for value in (random_source.getrandbits(1024) for _ in range(32))],
 }
 for name, records in cases.items():
     (destination / (name + '.txt')).write_text(''.join(

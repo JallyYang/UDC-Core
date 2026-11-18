@@ -473,6 +473,19 @@ else if (emit_result)
 流水模式的调度器以最终快照进入本地两项请求队列推进pkg状态，不等待延后响应；全关配置才按有效响应
 中的done决定重试或提前切包。相关逻辑见[uddc_dec_split.sv](../rtl/uddc_dec_split.sv)。
 
+上游调度器区分输入缓存和下游编号的生命周期：
+
+| 状态/事件 | 含义 |
+| --- | --- |
+| `split.input_allocated[id]` | 输入缓存占用，从首拍接收持续到当前unit分发结束 |
+| `split.unit_live[id]` | 下游编号占用，从context握手持续到最终输出retire |
+| `split.unit_dispatch_finished` | 原始context交付、Clear请求握手或pkg1调度完成，释放输入缓存并推进调度指针 |
+
+pkg1最终快照入队后，输入缓存下一拍即可复用，队列副本不受覆盖影响。
+同编号新unit只能先缓存在输入侧，旧unit退休前不交付新context，也不发送新unit的解析请求。
+旧retire只清除 `unit_live`，不会清除新输入占用或使满输入槽位提前ready。
+因此同一编号的解析生命周期仍不重叠，final清理和去重规则保持不变。
+
 ## 11. 反压与复位
 
 每个开启的可选寄存级实例化 `de_rs_reg`，容量两项，最小延迟一拍：

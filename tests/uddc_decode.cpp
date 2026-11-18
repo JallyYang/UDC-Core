@@ -16,12 +16,14 @@ int main(int argc,char**argv) {
     Verilated::commandArgs(argc,argv);
     if(argc<2) return 2;
     bool continuous=false;
-    int expected_first=-1, max_gaps=-1;
+    int expected_first=-1, max_gaps=-1, stall_output=0, expected_prefetch=-1;
     for(int i=2;i<argc;i++) {
         std::string option=argv[i];
         if(option=="--continuous") continuous=true;
         else if(option.rfind("--expect-first=",0)==0) expected_first=std::stoi(option.substr(15));
         else if(option.rfind("--max-gaps=",0)==0) max_gaps=std::stoi(option.substr(11));
+        else if(option.rfind("--stall-output=",0)==0) stall_output=std::stoi(option.substr(15));
+        else if(option.rfind("--expect-prefetch=",0)==0) expected_prefetch=std::stoi(option.substr(18));
         else return 2;
     }
     std::ifstream f(argv[1]);
@@ -44,8 +46,16 @@ int main(int argc,char**argv) {
     std::array<uint32_t,8> held{}; int held_sop=0,held_last=0,held_error=0;
     for(int cycle=0;cycle<100000 && rx<v.size();cycle++) {
         d.clk=0;
+        if(cycle==stall_output && expected_prefetch>=0){
+            if(tx!=size_t(expected_prefetch) || tb!=0 || rx!=0){
+                std::cerr<<"Prefetch capacity failure: accepted="<<tx<<" beat="<<tb
+                         <<" expected="<<expected_prefetch<<" output="<<rx<<"\n";
+                return 1;
+            }
+            std::cout<<"PASS stalled-output prefetch: "<<tx<<" complete units accepted before retirement\n";
+        }
         if(!pending && tx<v.size() && (continuous || rng()%4!=0)) pending=true;
-        d.s_valid=pending; d.m_ready=continuous || rng()%4!=0;
+        d.s_valid=pending; d.m_ready=cycle>=stall_output && (continuous || rng()%4!=0);
         int beats=1;
         if(tx<v.size()) {
             auto &u=v[tx]; beats=u.mode>=6?1:u.mode==0?4:u.mode==1?1:u.mode==5?3:2;
